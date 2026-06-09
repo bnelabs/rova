@@ -178,6 +178,9 @@ class ChatInput(TextArea):
     def action_focus_next(self) -> None:
         """Tab: fuzzy-autocomplete slash commands, else move focus."""
         if self.text.startswith("/"):
+            # If arguments are present, suppress focus shift (user is mid-command)
+            if " " in self.text.strip():
+                return
             match = _fuzzy_best_match(self.text)
             if match:
                 self.text = match

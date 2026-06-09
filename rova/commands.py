@@ -17,6 +17,7 @@ from rova.state import (
     ChatState,
     token_usage,
 )
+from rova.config import save_config
 from rova.skills import list_skills, read_skill
 
 SLASH_COMMANDS = [
@@ -205,14 +206,16 @@ async def handle_slash_command(
         if theme not in VALID_THEMES:
             return f"unknown theme: {theme} (valid: {', '.join(sorted(VALID_THEMES))})"
         state.theme = theme
-        return f"theme={theme} (restart to apply)"
+        save_config({"theme": theme})
+        return f"theme={theme} (saved persistently)"
     if command == "/autocompact":
         if not args:
             state.auto_compact = not state.auto_compact
         else:
             parsed = _parse_bool(args[0])
             state.auto_compact = parsed if parsed is not None else state.auto_compact
-        return f"auto_compact={state.auto_compact}"
+        save_config({"auto_compact": state.auto_compact})
+        return f"auto_compact={state.auto_compact} (saved persistently)"
     if command == "/preview":
         if workspace_dir is None:
             return "workspace not configured"

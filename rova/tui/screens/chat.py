@@ -53,15 +53,14 @@ class ChatScreen(Screen[None]):
         self.workspace = workspace_dir
         self._http = httpx.AsyncClient()
 
-    def on_unmount(self) -> None:
-        asyncio.create_task(self._http.aclose())
+    async def on_unmount(self) -> None:
+        await self._http.aclose()
 
     def compose(self) -> ComposeResult:
         yield Static(self._render_header(), id="rova-header")
         with Horizontal(id="main-content"):
             yield ChatView(id="chat-view")
             with Vertical(id="right-pane"):
-                yield Static("[bold]RAG Sources[/bold]\n(none)", id="rag-sources")
                 yield FileExplorer(self.workspace, id="file-explorer")
         yield CommandPalette(id="command-palette")
         yield ChatInput(id="chat-input")
@@ -188,10 +187,10 @@ class ChatScreen(Screen[None]):
         status_bar = self.query_one("#status-bar", StatusBarWidget)
         tools = TOOL_DEFINITIONS if self.state.profile == "tool_agent" else None
 
-        status_bar.set_busy("Waiting for response...")
+        status_bar.set_busy("Streaming...")
         try:
-            result = await self.client.async_send(
-                message, self.state, tools, self._http
+            result = await self.client.async_send_streaming(
+                message, self.state, tools, self._http,
             )
         except Exception as exc:
             chat_view.add_error(f"Send failed: {exc}")
@@ -202,17 +201,12 @@ class ChatScreen(Screen[None]):
 
         max_iterations = 10
         iteration = 0
-        recent_calls: list[tuple[str, str]] = []  # track (name, args) for dedup
+        recent_calls: list[tuple[str, str]] = []  # track (name, args) for cross-iteration dedup
         while result.tool_calls and iteration < max_iterations:
             iteration += 1
-            # Append assistant message ONCE for all parallel tool calls
-            self.state.history.append(
-                {
-                    "role": "assistant",
-                    "content": result.content or "",
-                    "tool_calls": result.tool_calls,
-                }
-            )
+            # Assistant message (with tool_calls) already recorded by async_send/async_continue.
+            # Pre-parse tool call signatures once for dedup detection.
+            signatures: list[tuple[dict[str, Any], str, str]] = []  # (tc, name, args_str)
             for tc in result.tool_calls:
                 func = tc.get("function", {})
                 name = func.get("name", "unknown")
@@ -223,10 +217,15 @@ class ChatScreen(Screen[None]):
                 except (json.JSONDecodeError, TypeError):
                     args = {}
                 args_str = json.dumps(args, indent=2, sort_keys=True)
+                signatures.append((tc, name, args_str))
+
+            # Phase 1: UI updates and dedup checks (main thread)
+            call_keys: list[tuple[str, str]] = []
+            for _tc, name, args_str in signatures:
                 chat_view.add_tool_call(name, args_str)
 
-                # Detect repeated tool calls (LLM stuck in a loop)
                 call_key = (name, args_str)
+                call_keys.append(call_key)
                 if call_key in recent_calls:
                     chat_view.add_system(
                         f"[dim]⚠️ Repeated call to {name} with same args — "
@@ -239,7 +238,17 @@ class ChatScreen(Screen[None]):
                 status_bar.set_busy(f"Executing {name}...")
                 chat_view.add_tool_status(f"Running {name}...")
 
-                tool_result_msg = await asyncio.to_thread(execute_tool_call, tc, self.workspace)
+            # Phase 2: Execute all tools in parallel via thread pool
+            async def _exec_one(tc: dict[str, Any]) -> dict[str, Any]:
+                return await asyncio.to_thread(execute_tool_call, tc, self.workspace)
+
+            tool_results = await asyncio.gather(
+                *[_exec_one(tc) for tc, _name, _args_str in signatures]
+            )
+
+            # Phase 3: Process results and update history
+            for (tc, name, args_str), tool_result_msg in zip(signatures, tool_results):
+                call_key = (name, args_str)
                 # If this is a duplicate, append a warning to the tool result
                 if recent_calls.count(call_key) >= 2:
                     original = tool_result_msg.get("content", "")
@@ -255,8 +264,7 @@ class ChatScreen(Screen[None]):
 
             try:
                 status_bar.set_busy("Waiting for response...")
-                result = await self.client.async_send(
-                    "Tool results received. Continue or provide final answer.",
+                result = await self.client.async_continue(
                     self.state,
                     tools,
                     self._http,
@@ -305,7 +313,6 @@ class ChatScreen(Screen[None]):
     def _refresh_all(self) -> None:
         self._refresh_header()
         self._refresh_status_bar()
-        self._refresh_rag_sources()
 
     def _refresh_header(self) -> None:
         try:
@@ -318,14 +325,6 @@ class ChatScreen(Screen[None]):
             usage = token_usage(self.state)
             self.query_one("#status-bar", StatusBarWidget).update_status(
                 self.state, usage
-            )
-        except Exception:
-            pass
-
-    def _refresh_rag_sources(self) -> None:
-        try:
-            self.query_one("#rag-sources", Static).update(
-                "[bold]RAG Sources[/bold]\n(none)"
             )
         except Exception:
             pass
