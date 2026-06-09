@@ -7,10 +7,10 @@ from textual.message import Message
 
 
 class ChatInput(Input):
-    """Single-line input that emits Submitted on Enter."""
+    """Single-line input widget. Posts ChatSubmitted on Enter."""
 
-    class Submitted(Message):
-        """Emitted when the user submits (Enter)."""
+    class ChatSubmitted(Message):
+        """Emitted when the user submits (Enter), carrying the trimmed text."""
 
         def __init__(self, value: str) -> None:
             super().__init__()
@@ -22,6 +22,9 @@ class ChatInput(Input):
             **kwargs,
         )
 
-    def on_input_submitted(self, event: Input.Submitted) -> None:
-        event.stop()
-        self.post_message(self.Submitted(event.value))
+    def action_submit(self) -> None:
+        """Intercept Textual's default submit to emit our custom message."""
+        value = self.value
+        if value.strip():
+            self.post_message(self.ChatSubmitted(value))
+        self.clear()

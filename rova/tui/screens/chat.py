@@ -56,7 +56,7 @@ class ChatScreen(Screen[None]):
 
     # --- Input handling ---------------------------------------------------
 
-    def on_chat_input_submitted(self, event: ChatInput.Submitted) -> None:
+    def on_chat_input_chat_submitted(self, event: ChatInput.ChatSubmitted) -> None:
         text = event.value.strip()
         if not text:
             return
