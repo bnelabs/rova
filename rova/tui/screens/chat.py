@@ -18,12 +18,13 @@ from rova.commands import handle_slash_command
 from rova.tools import execute_tool_call, TOOL_DEFINITIONS
 from rova.tui.widgets.chat_view import ChatView
 from rova.tui.widgets.input_area import ChatInput
+from rova.tui.widgets.command_palette import CommandPalette
 from rova.tui.widgets.sidebar import Sidebar
 from rova.tui.widgets.status_bar import StatusBarWidget
 
 
 class ChatScreen(Screen[None]):
-    """The main chat screen with chat history, input, and sidebar."""
+    """The main chat screen with chat history, command palette, input, and sidebar."""
 
     def __init__(
         self,
@@ -38,8 +39,6 @@ class ChatScreen(Screen[None]):
         self._http = httpx.AsyncClient()
 
     def on_unmount(self) -> None:
-        """Clean up the shared HTTP client when the screen is removed."""
-        # Schedule async close — Textual will handle this
         import asyncio
         asyncio.create_task(self._http.aclose())
 
@@ -48,6 +47,7 @@ class ChatScreen(Screen[None]):
         with Horizontal(id="main-content"):
             yield ChatView(id="chat-view")
             yield Sidebar(id="sidebar")
+        yield CommandPalette(id="command-palette")
         yield ChatInput(id="chat-input")
         yield StatusBarWidget(id="status-bar")
 
@@ -60,6 +60,9 @@ class ChatScreen(Screen[None]):
         text = event.value.strip()
         if not text:
             return
+
+        palette = self.query_one("#command-palette", CommandPalette)
+        palette.hide()
 
         chat_view = self.query_one("#chat-view", ChatView)
 
@@ -75,6 +78,15 @@ class ChatScreen(Screen[None]):
 
         self._refresh_all()
 
+    # --- Slash command palette --------------------------------------------
+
+    def on_chat_input_slash_changed(self, event: ChatInput.SlashChanged) -> None:
+        palette = self.query_one("#command-palette", CommandPalette)
+        if event.value.startswith("/"):
+            palette.show_commands(event.value)
+        else:
+            palette.hide()
+
     # --- Message sending & tool loop --------------------------------------
 
     @work(exclusive=True)
@@ -89,7 +101,6 @@ class ChatScreen(Screen[None]):
             self._refresh_all()
             return
 
-        # Tool loop: execute tool calls locally and continue
         max_iterations = 10
         iteration = 0
         while result.tool_calls and iteration < max_iterations:

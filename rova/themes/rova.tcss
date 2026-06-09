@@ -42,6 +42,24 @@ Screen {
     padding: 0 1;
 }
 
+#command-palette {
+    dock: bottom;
+    height: auto;
+    max-height: 14;
+    margin: 0 1 1 1;
+    padding: 1 2;
+    background: #1e1e2e;
+    color: #cdd6f4;
+    border: solid #cba6f7;
+    border-bottom: none;
+    display: none;
+    overflow-y: auto;
+}
+
+#command-palette.-visible {
+    display: block;
+}
+
 #chat-input {
     dock: bottom;
     height: 3;
