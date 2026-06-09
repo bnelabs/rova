@@ -1,18 +1,18 @@
-/* Rova — modern dark theme (inspired by Claude Code / Catppuccin Mocha) */
+/* Rova — Solarized Dark theme */
 
 Screen {
-    background: #11111b;
-    color: #cdd6f4;
+    background: #002b36;
+    color: #839496;
 }
 
 #rova-header {
     dock: top;
     height: 3;
     padding: 0 1;
-    background: #181825;
-    color: #cdd6f4;
+    background: #073642;
+    color: #839496;
     text-style: bold;
-    border-bottom: solid #313244;
+    border-bottom: solid #586e75;
 }
 
 #main-content {
@@ -21,37 +21,37 @@ Screen {
 
 #chat-view {
     width: 2fr;
-    border-right: solid #313244;
+    border-right: solid #586e75;
     padding: 0 1;
-    background: #11111b;
+    background: #002b36;
 }
 
 #right-pane {
     width: 1fr;
     min-width: 26;
     max-width: 40;
-    background: #181825;
-    border-left: solid #313244;
+    background: #073642;
+    border-left: solid #586e75;
 }
 
 #rag-sources {
     height: auto;
     max-height: 30%;
     padding: 1;
-    background: #181825;
-    border-bottom: solid #313244;
-    color: #cdd6f4;
+    background: #073642;
+    border-bottom: solid #586e75;
+    color: #839496;
 }
 
 #file-explorer {
     height: 1fr;
     padding: 0 1;
-    background: #181825;
+    background: #073642;
 }
 
 Tree {
-    background: #181825;
-    color: #cdd6f4;
+    background: #073642;
+    color: #839496;
 }
 
 Tree:focus {
@@ -59,24 +59,24 @@ Tree:focus {
 }
 
 Tree > .tree--label {
-    color: #cdd6f4;
+    color: #839496;
 }
 
 Tree > .tree--guides {
-    color: #45475a;
+    color: #586e75;
 }
 
 Tree > .tree--guides-hover {
-    color: #cba6f7;
+    color: #268bd2;
 }
 
 Tree > .tree--guides-selected {
-    color: #cba6f7;
+    color: #268bd2;
 }
 
 Tree > .tree--highlight {
-    background: #313244;
-    color: #cba6f7;
+    background: #586e75;
+    color: #268bd2;
 }
 
 #command-palette {
@@ -85,9 +85,9 @@ Tree > .tree--highlight {
     max-height: 50%;
     margin: 0 1 1 1;
     padding: 1 2;
-    background: #1e1e2e;
-    color: #cdd6f4;
-    border: solid #cba6f7;
+    background: #073642;
+    color: #839496;
+    border: solid #268bd2;
     border-bottom: none;
     display: none;
     overflow-y: auto;
@@ -95,13 +95,13 @@ Tree > .tree--highlight {
 }
 
 #command-palette Scrollbar {
-    background: #11111b;
-    color: #585b70;
+    background: #002b36;
+    color: #586e75;
 }
 
 #command-palette Scrollbar:hover {
-    background: #313244;
-    color: #cba6f7;
+    background: #073642;
+    color: #268bd2;
 }
 
 #command-palette.-visible {
@@ -114,19 +114,18 @@ Tree > .tree--highlight {
     min-height: 3;
     max-height: 10;
     margin: 0;
-    border-top: solid #313244;
-    background: #181825;
-    color: #cdd6f4;
+    border-top: solid #586e75;
+    background: #073642;
+    color: #839496;
 }
 
 #chat-input:focus {
-    border-top: solid #cba6f7;
+    border-top: solid #268bd2;
 }
 
-/* TextArea inner text widget */
 TextArea {
-    background: #181825;
-    color: #cdd6f4;
+    background: #073642;
+    color: #839496;
     border: none;
     padding: 0 1;
 }
@@ -136,31 +135,31 @@ TextArea:focus {
 }
 
 TextArea > .text-area--cursor-line {
-    background: #1e1e2e;
+    background: #002b36;
 }
 
 TextArea > .text-area--selection {
-    background: #45475a;
+    background: #586e75;
 }
 
 #status-bar {
     dock: bottom;
     height: 1;
-    background: #1e1e2e;
-    color: #6c7086;
+    background: #073642;
+    color: #586e75;
     padding: 0 1;
 }
 
 #help-container {
     padding: 1 2;
-    background: #11111b;
-    color: #cdd6f4;
+    background: #002b36;
+    color: #839496;
 }
 
 #help-text {
     padding: 1;
-    background: #181825;
-    border: solid #313244;
+    background: #073642;
+    border: solid #586e75;
 }
 
 #help-close {
@@ -168,32 +167,29 @@ TextArea > .text-area--selection {
     width: 20;
 }
 
-/* RichLog styling */
 RichLog {
-    background: #11111b;
-    color: #cdd6f4;
+    background: #002b36;
+    color: #839496;
 }
 
 RichLog:focus {
     border: none;
 }
 
-/* Button styling */
 Button {
-    background: #313244;
-    color: #cdd6f4;
-    border: solid #45475a;
+    background: #586e75;
+    color: #eee8d5;
+    border: solid #657b83;
 }
 
 Button:hover {
-    background: #45475a;
-    color: #f5c2e7;
+    background: #657b83;
+    color: #b58900;
 }
 
-/* Input styling */
 Input {
-    background: #181825;
-    color: #cdd6f4;
+    background: #073642;
+    color: #839496;
     border: none;
 }
 
@@ -201,13 +197,12 @@ Input:focus {
     border: none;
 }
 
-/* Scrollbar styling */
 Scrollbar {
-    background: #11111b;
-    color: #585b70;
+    background: #002b36;
+    color: #586e75;
 }
 
 Scrollbar:hover {
-    background: #313244;
-    color: #cba6f7;
+    background: #073642;
+    color: #268bd2;
 }

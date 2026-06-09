@@ -30,7 +30,8 @@ def _skill_messages(state: ChatState) -> list[dict[str, str]]:
 
     messages: list[dict[str, str]] = []
     for name in state.active_skills:
-        text = read_skill(state.skills_dir, name)
+        params = state.skill_params.get(name)
+        text = read_skill(state.skills_dir, name, params)
         if text:
             messages.append({"role": "system", "content": f"Active skill: {name}\n{text}"})
     return messages
@@ -137,6 +138,20 @@ class RouterClient:
             f"{self.base_url}/rag/search",
             json={"query": query, "top_k": top_k},
             timeout=self.timeout,
+        )
+        response.raise_for_status()
+        return response.json()
+
+    def list_rag_documents(self) -> dict[str, Any]:
+        """List all documents in the RAG index."""
+        response = httpx.get(f"{self.base_url}/rag/documents", timeout=10.0)
+        response.raise_for_status()
+        return response.json()
+
+    def delete_rag_document(self, doc_id: str) -> dict[str, Any]:
+        """Delete a document from the RAG index by ID."""
+        response = httpx.delete(
+            f"{self.base_url}/rag/documents/{doc_id}", timeout=10.0
         )
         response.raise_for_status()
         return response.json()

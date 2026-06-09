@@ -1,4 +1,4 @@
-"""Main chat screen — the primary interactive screen."""
+"""Main chat screen — the primary interactive screen with split layout."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from pathlib import Path
 import httpx
 from textual import work
 from textual.app import ComposeResult
-from textual.containers import Horizontal
+from textual.containers import Horizontal, Vertical
 from textual.screen import Screen
 from textual.widgets import Static
 
@@ -19,7 +19,7 @@ from rova.tools import execute_tool_call, TOOL_DEFINITIONS
 from rova.tui.widgets.chat_view import ChatView
 from rova.tui.widgets.input_area import ChatInput
 from rova.tui.widgets.command_palette import CommandPalette, COMMAND_DEFS
-from rova.tui.widgets.sidebar import Sidebar
+from rova.tui.widgets.file_explorer import FileExplorer
 from rova.tui.widgets.status_bar import StatusBarWidget
 
 
@@ -31,14 +31,14 @@ def _is_exact_command(text: str) -> bool:
     /prf            → False (fuzzy/partial, needs palette selection)
     """
     first_word = text.strip().split()[0] if text.strip() else ""
-    for cmd, _usage, _desc in COMMAND_DEFS:
+    for _cat, cmd, _usage, _desc in COMMAND_DEFS:
         if cmd == first_word:
             return True
     return False
 
 
 class ChatScreen(Screen[None]):
-    """The main chat screen with chat history, command palette, input, and sidebar."""
+    """The main chat screen with split layout: chat + file explorer/RAG pane."""
 
     def __init__(
         self,
@@ -61,7 +61,9 @@ class ChatScreen(Screen[None]):
         yield Static(self._render_header(), id="rova-header")
         with Horizontal(id="main-content"):
             yield ChatView(id="chat-view")
-            yield Sidebar(id="sidebar")
+            with Vertical(id="right-pane"):
+                yield Static("[bold]RAG Sources[/bold]\n(none)", id="rag-sources")
+                yield FileExplorer(self.workspace, id="file-explorer")
         yield CommandPalette(id="command-palette")
         yield ChatInput(id="chat-input")
         yield StatusBarWidget(id="status-bar")
@@ -80,6 +82,7 @@ class ChatScreen(Screen[None]):
         chat_view = self.query_one("#chat-view", ChatView)
 
         if text.startswith("/"):
+            _old_theme = self.state.theme
             result = handle_slash_command(
                 text, self.state, self.client, self.workspace
             )
@@ -87,6 +90,11 @@ class ChatScreen(Screen[None]):
                 self.app.exit()
                 return
             chat_view.add_system(result)
+            if self.state.theme != _old_theme:
+                try:
+                    self.app._apply_theme(self.state.theme)
+                except Exception:
+                    pass
         else:
             chat_view.add_user(text)
             self._send_message(text)
@@ -122,9 +130,8 @@ class ChatScreen(Screen[None]):
         current_text = input_widget.text.strip()
         palette.hide()
 
-        # If the user typed an exact command (like /help, /clear, /exit),
-        # execute it directly without going through the palette picker.
         if _is_exact_command(current_text):
+            _old_theme = self.state.theme
             result = handle_slash_command(
                 current_text, self.state, self.client, self.workspace
             )
@@ -132,21 +139,22 @@ class ChatScreen(Screen[None]):
                 self.app.exit()
                 return
             chat_view.add_system(result)
+            if self.state.theme != _old_theme:
+                try:
+                    self.app._apply_theme(self.state.theme)
+                except Exception:
+                    pass
             input_widget.clear()
             self._refresh_all()
             return
 
-        # Otherwise: fill the input with the selected command so the user
-        # can add arguments, then press Enter again to execute.
         selected_cmd = palette.get_selected_command()
         if selected_cmd:
             input_widget.text = selected_cmd + " "
-            # Move cursor to end
             input_widget.cursor_location = (
                 input_widget.document.line_count - 1,
                 len(input_widget.text),
             )
-            # Re-post slash changed so the palette updates for the new text
             if selected_cmd.startswith("/"):
                 input_widget.post_message(
                     ChatInput.SlashChanged(selected_cmd + " ")
@@ -159,18 +167,35 @@ class ChatScreen(Screen[None]):
         palette.hide()
         self._refresh_all()
 
+    # -- File explorer ----------------------------------------------------
+
+    def on_file_explorer_file_selected(self, event: FileExplorer.FileSelected) -> None:
+        """Preview a file selected in the file explorer."""
+        chat_view = self.query_one("#chat-view", ChatView)
+        try:
+            content = event.path.read_text(encoding="utf-8")
+            preview = content[:1500] + ("…" if len(content) > 1500 else "")
+            chat_view.add_system(
+                f"[bold]Preview: {event.path.name}[/bold]\n{preview}"
+            )
+        except Exception as exc:
+            chat_view.add_error(f"Cannot read {event.path.name}: {exc}")
+
     # -- Message sending & tool loop --------------------------------------
 
     @work(exclusive=True)
     async def _send_message(self, message: str) -> None:
         chat_view = self.query_one("#chat-view", ChatView)
+        status_bar = self.query_one("#status-bar", StatusBarWidget)
         tools = TOOL_DEFINITIONS if self.state.profile == "tool_agent" else None
 
+        status_bar.set_busy("Waiting for response...")
         try:
             result = await self.client.async_send(
                 message, self.state, tools, self._http
             )
         except Exception as exc:
+            status_bar.clear_busy()
             chat_view.add_error(f"Send failed: {exc}")
             self._refresh_all()
             return
@@ -191,6 +216,9 @@ class ChatScreen(Screen[None]):
                 args_str = json.dumps(args, indent=2, sort_keys=True)
                 chat_view.add_tool_call(name, args_str)
 
+                status_bar.set_busy(f"Executing {name}...")
+                chat_view.add_tool_status(f"Running {name}...")
+
                 tool_result_msg = execute_tool_call(tc, self.workspace)
                 result_content = tool_result_msg.get("content", "")
                 chat_view.add_tool_result(result_content)
@@ -205,6 +233,7 @@ class ChatScreen(Screen[None]):
                 self.state.history.append(tool_result_msg)
 
             try:
+                status_bar.set_busy("Waiting for response...")
                 result = await self.client.async_send(
                     "Tool results received. Continue or provide final answer.",
                     self.state,
@@ -212,12 +241,29 @@ class ChatScreen(Screen[None]):
                     self._http,
                 )
             except Exception as exc:
+                status_bar.clear_busy()
                 chat_view.add_error(f"Tool loop error: {exc}")
                 self._refresh_all()
                 return
 
+        status_bar.clear_busy()
         chat_view.add_assistant(result.content, result.wall_seconds)
+
+        # Auto-compaction check
+        if self.state.auto_compact:
+            usage = token_usage(self.state)
+            if usage.percent > 80:
+                chat_view.add_system("[dim]⏳ Auto-compacting conversation (context > 80%)...[/dim]")
+                try:
+                    before = usage.used_tokens
+                    self.client.compact(self.state)
+                    after = token_usage(self.state).used_tokens
+                    chat_view.add_system(f"[dim]Compacted {before} → {after} tokens[/dim]")
+                except Exception:
+                    chat_view.add_system("[dim]Auto-compaction skipped (client unavailable)[/dim]")
+
         self._refresh_all()
+        self._refresh_file_explorer()
 
     # -- Refresh helpers --------------------------------------------------
 
@@ -231,25 +277,18 @@ class ChatScreen(Screen[None]):
             f"profile={self.state.profile or 'auto'}  "
             f"rag={self.state.rag if self.state.rag is not None else 'auto'}  "
             f"quality={self.state.quality or 'auto'}  "
+            f"auto-compact={'on' if self.state.auto_compact else 'off'}  "
             f"skills={','.join(self.state.active_skills) if self.state.active_skills else 'none'}"
         )
 
     def _refresh_all(self) -> None:
         self._refresh_header()
-        self._refresh_sidebar()
         self._refresh_status_bar()
+        self._refresh_rag_sources()
 
     def _refresh_header(self) -> None:
         try:
             self.query_one("#rova-header", Static).update(self._render_header())
-        except Exception:
-            pass
-
-    def _refresh_sidebar(self) -> None:
-        try:
-            self.query_one("#sidebar", Sidebar).refresh_state(
-                self.state, self.workspace
-            )
         except Exception:
             pass
 
@@ -259,5 +298,19 @@ class ChatScreen(Screen[None]):
             self.query_one("#status-bar", StatusBarWidget).update_status(
                 self.state, usage
             )
+        except Exception:
+            pass
+
+    def _refresh_rag_sources(self) -> None:
+        try:
+            self.query_one("#rag-sources", Static).update(
+                "[bold]RAG Sources[/bold]\n(none)"
+            )
+        except Exception:
+            pass
+
+    def _refresh_file_explorer(self) -> None:
+        try:
+            self.query_one("#file-explorer", FileExplorer).refresh_tree()
         except Exception:
             pass

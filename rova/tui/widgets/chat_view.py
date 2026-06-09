@@ -59,3 +59,21 @@ class ChatView(RichLog):
                 padding=(0, 1),
             )
         )
+
+    def add_tool_status(self, text: str) -> None:
+        """Show an inline tool progress message (e.g. 'Executing Python...')."""
+        self.write(f"[dim #f9e2af]🔧 {text}[/dim #f9e2af]")
+
+    def add_source_attribution(self, source_tag: str, snippet: str = "") -> None:
+        """Render a RAG source citation with optional snippet preview."""
+        if snippet:
+            self.write(
+                Panel(
+                    f"[bold cyan]{source_tag}[/bold cyan]\n[dim]{snippet[:300]}[/dim]",
+                    title="SOURCE",
+                    border_style="cyan",
+                    padding=(0, 1),
+                )
+            )
+        else:
+            self.write(f"[bold cyan]📎 {source_tag}[/bold cyan]")

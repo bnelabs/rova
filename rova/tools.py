@@ -2,9 +2,17 @@
 
 from __future__ import annotations
 
+import ast
+import datetime
 import json
+import operator
+import os
+import platform
 import re
+import resource
+import shutil
 import subprocess
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -35,6 +43,12 @@ def execute_tool_call(
         result = web_search(arguments)
     elif name == "web_fetch":
         result = web_fetch(arguments)
+    elif name == "get_time":
+        result = get_time()
+    elif name == "calculate":
+        result = calculate(arguments)
+    elif name == "system_info":
+        result = system_info()
     else:
         result = f"unknown tool: {name}"
 
@@ -46,23 +60,46 @@ def execute_tool_call(
     }
 
 
-# -- Python execution ---------------------------------------------------
+# -- Python execution (sandboxed) ---------------------------------------
+
+def _sandbox_preexec() -> None:
+    """Set resource limits for sandboxed Python execution."""
+    # 256 MB memory limit
+    mem_bytes = 256 * 1024 * 1024
+    resource.setrlimit(resource.RLIMIT_AS, (mem_bytes, mem_bytes))
+    # 25s CPU time limit
+    resource.setrlimit(resource.RLIMIT_CPU, (25, 25))
+    # No child processes
+    resource.setrlimit(resource.RLIMIT_NPROC, (0, 0))
+    # Limit file size to 50MB
+    resource.setrlimit(resource.RLIMIT_FSIZE, (50 * 1024 * 1024, 50 * 1024 * 1024))
+
 
 def execute_python(arguments: dict[str, Any], workspace_dir: Path) -> str:
     code = arguments.get("code", "")
+    tmpdir = tempfile.mkdtemp(prefix="rova_sandbox_")
     try:
         result = subprocess.run(
             ["python3", "-c", code],
             capture_output=True,
             text=True,
             timeout=30,
-            cwd=str(workspace_dir),
+            cwd=tmpdir,
+            preexec_fn=_sandbox_preexec,
+            env={
+                "PATH": "/usr/bin:/bin",
+                "HOME": tmpdir,
+                "TMPDIR": tmpdir,
+                "PYTHONPATH": "",
+            },
         )
         return result.stdout if result.returncode == 0 else result.stderr
     except subprocess.TimeoutExpired:
         return "error: execution timed out (30s)"
     except Exception as e:
         return str(e)
+    finally:
+        shutil.rmtree(tmpdir, ignore_errors=True)
 
 
 # -- File operations ----------------------------------------------------
@@ -218,6 +255,70 @@ def _clean_html(text: str) -> str:
     return text.strip()
 
 
+# -- Utility tools ------------------------------------------------------
+
+# Allowed operators and functions for safe calculate()
+_SAFE_OPS: dict[type, Any] = {
+    ast.Add: operator.add,
+    ast.Sub: operator.sub,
+    ast.Mult: operator.mul,
+    ast.Div: operator.truediv,
+    ast.FloorDiv: operator.floordiv,
+    ast.Mod: operator.mod,
+    ast.Pow: operator.pow,
+    ast.USub: operator.neg,
+    ast.UAdd: operator.pos,
+}
+
+
+def _safe_eval(node: ast.AST) -> Any:
+    """Recursively evaluate a safe AST expression (no builtins, no calls)."""
+    if isinstance(node, ast.Constant):
+        return node.value
+    if isinstance(node, ast.UnaryOp):
+        op = _SAFE_OPS.get(type(node.op))
+        if op is None:
+            raise ValueError(f"unsafe operator: {type(node.op).__name__}")
+        return op(_safe_eval(node.operand))
+    if isinstance(node, ast.BinOp):
+        op = _SAFE_OPS.get(type(node.op))
+        if op is None:
+            raise ValueError(f"unsafe operator: {type(node.op).__name__}")
+        return op(_safe_eval(node.left), _safe_eval(node.right))
+    raise ValueError(f"unsafe expression: {type(node).__name__}")
+
+
+def get_time() -> str:
+    """Return current system time in ISO format."""
+    return datetime.datetime.now().isoformat()
+
+
+def calculate(arguments: dict[str, Any]) -> str:
+    """Safely evaluate a mathematical expression. Only arithmetic allowed."""
+    expression = arguments.get("expression", "")
+    if not expression:
+        return "error: expression is required"
+    try:
+        tree = ast.parse(expression.strip(), mode="eval")
+        result = _safe_eval(tree.body)
+        return str(result)
+    except (SyntaxError, ValueError, ZeroDivisionError) as exc:
+        return f"calculate error: {exc}"
+
+
+def system_info() -> str:
+    """Return basic OS and hardware information as JSON."""
+    import socket
+    info = {
+        "platform": platform.platform(),
+        "python_version": platform.python_version(),
+        "cpu_count": os.cpu_count(),
+        "hostname": socket.gethostname(),
+        "machine": platform.machine(),
+    }
+    return json.dumps(info, indent=2, sort_keys=True)
+
+
 # -- Tool definitions (JSON Schema for the LLM) -------------------------
 
 TOOL_DEFINITIONS: list[dict[str, Any]] = [
@@ -327,6 +428,45 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
                     },
                 },
                 "required": ["url"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_time",
+            "description": "Return the current system time in ISO 8601 format.",
+            "parameters": {
+                "type": "object",
+                "properties": {},
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "calculate",
+            "description": "Safely evaluate a mathematical expression (+, -, *, /, **, %, parentheses).",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "expression": {
+                        "type": "string",
+                        "description": "Mathematical expression to evaluate, e.g. '2 + 3 * 4'.",
+                    },
+                },
+                "required": ["expression"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "system_info",
+            "description": "Return basic OS and hardware information (platform, CPU count, hostname).",
+            "parameters": {
+                "type": "object",
+                "properties": {},
             },
         },
     },

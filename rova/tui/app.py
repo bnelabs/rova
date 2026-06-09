@@ -24,7 +24,15 @@ class RovaApp(App):
         Binding("ctrl+c", "quit", "Quit", show=False),
         Binding("f1", "show_help", "Help", show=True),
         Binding("ctrl+h", "show_help", "Help", show=False),
+        Binding("ctrl+r", "show_history", "History", show=True),
     ]
+
+    THEME_PATHS = {
+        "rova": "themes/rova.tcss",
+        "dracula": "themes/dracula.tcss",
+        "solarized-dark": "themes/solarized-dark.tcss",
+        "high-contrast": "themes/high-contrast.tcss",
+    }
 
     def __init__(
         self,
@@ -40,12 +48,31 @@ class RovaApp(App):
 
     def on_mount(self) -> None:
         self.push_screen(self.chat_screen)
+        # Apply theme from state if set
+        theme = self.rova_state.theme
+        if theme in self.THEME_PATHS:
+            self._apply_theme(theme)
+
+    def _apply_theme(self, name: str) -> None:
+        """Apply a theme at runtime by re-reading the CSS file."""
+        path = self.THEME_PATHS.get(name, "themes/rova.tcss")
+        try:
+            self.stylesheet.read(path)
+            self.refresh()
+        except Exception:
+            pass
 
     def action_show_help(self) -> None:
         from rova.commands import command_menu
         from rova.tui.screens.help_screen import HelpScreen
 
         self.push_screen(HelpScreen(command_menu()))
+
+    def action_show_history(self) -> None:
+        """Open the interactive history browser."""
+        from rova.tui.screens.history_screen import HistoryScreen
+
+        self.push_screen(HistoryScreen(self.rova_state, self.chat_screen))
 
 
 def run_app(client: RouterClient, state: ChatState, workspace_dir: Path) -> None:

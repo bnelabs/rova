@@ -36,8 +36,13 @@ SLASH_COMMANDS = [
     "/health",
     "/profiles",
     "/workspace",
+    "/theme",
+    "/autocompact",
+    "/preview",
     "/exit",
 ]
+
+VALID_THEMES = {"rova", "dracula", "solarized-dark", "high-contrast"}
 
 
 def command_menu() -> str:
@@ -158,10 +163,39 @@ def handle_slash_command(
         return _format_skills(list_skills(state.skills_dir))
     if command == "/skill":
         return _handle_skill_command(args, state)
+    if command == "/exit":
+        return ""
     if command == "/workspace":
         if workspace_dir is None:
             return "workspace not configured"
         return _format_workspace(workspace_dir)
+    if command == "/theme":
+        if not args:
+            return f"theme={state.theme} (valid: {', '.join(sorted(VALID_THEMES))})"
+        theme = args[0]
+        if theme not in VALID_THEMES:
+            return f"unknown theme: {theme} (valid: {', '.join(sorted(VALID_THEMES))})"
+        state.theme = theme
+        return f"theme={theme} (restart to apply)"
+    if command == "/autocompact":
+        if not args:
+            state.auto_compact = not state.auto_compact
+        else:
+            state.auto_compact = args[0].lower() in {"on", "true", "1", "yes"}
+        return f"auto_compact={state.auto_compact}"
+    if command == "/preview":
+        if workspace_dir is None:
+            return "workspace not configured"
+        if not args:
+            return "usage: /preview <filename>"
+        file_path = workspace_dir / args[0]
+        if not file_path.exists():
+            return f"file not found: {args[0]}"
+        try:
+            content = file_path.read_text(encoding="utf-8")
+            return f"--- {args[0]} ---\n{content[:2000]}"
+        except Exception as exc:
+            return f"error reading {args[0]}: {exc}"
     return f"unknown command: {command}"
 
 
@@ -191,7 +225,32 @@ def _handle_rag_command(
         if len(args) < 2:
             return "usage: /rag search <query>"
         return _format_search(client.search(" ".join(args[1:]), top_k=5))
-    return "usage: /rag on|off|ingest|search"
+    if action == "list":
+        if client is None:
+            return "client unavailable"
+        try:
+            payload = client.list_rag_documents()
+            return _format_rag_list(payload)
+        except Exception as exc:
+            return f"rag list failed: {exc}"
+    if action == "delete":
+        if client is None:
+            return "client unavailable"
+        if len(args) < 2:
+            return "usage: /rag delete <id>"
+        try:
+            payload = client.delete_rag_document(args[1])
+            return _format_rag_delete(payload)
+        except Exception as exc:
+            return f"rag delete failed: {exc}"
+    if action == "update":
+        if client is None:
+            return "client unavailable"
+        if len(args) < 2:
+            return "usage: /rag update <path>"
+        paths, _urls = _split_paths_and_urls(args[1:])
+        return _format_ingest(client.ingest(paths=paths))
+    return "usage: /rag on|off|ingest|search|list|delete|update"
 
 
 def _handle_skill_command(args: list[str], state: ChatState) -> str:
@@ -200,21 +259,33 @@ def _handle_skill_command(args: list[str], state: ChatState) -> str:
     action = args[0]
     if action == "use":
         if len(args) < 2:
-            return "usage: /skill use <name>"
+            return "usage: /skill use <name> [key=value ...]"
         name = args[1]
         if name not in list_skills(state.skills_dir):
             return f"unknown skill: {name}"
         if name not in state.active_skills:
             state.active_skills.append(name)
-        return f"skill added: {name}"
+        # Parse key=value parameters from remaining args
+        params: dict[str, str] = {}
+        for arg in args[2:]:
+            if "=" in arg:
+                k, v = arg.split("=", 1)
+                k = k.strip().rstrip()
+                v = v.strip().lstrip()
+                params[k] = v
+        if params:
+            state.skill_params[name] = params
+        return f"skill added: {name}" + (f" (params: {params})" if params else "")
     if action == "drop":
         if len(args) < 2:
             return "usage: /skill drop <name>"
         name = args[1]
         state.active_skills = [s for s in state.active_skills if s != name]
+        state.skill_params.pop(name, None)
         return f"skill dropped: {name}"
     if action == "clear":
         state.active_skills.clear()
+        state.skill_params.clear()
         return "skills cleared"
     if action == "show":
         if len(args) < 2:
@@ -289,6 +360,24 @@ def _format_history(state: ChatState) -> str:
 
 def _format_skills(names: list[str]) -> str:
     return "\n".join(names) if names else "no skills"
+
+
+def _format_rag_list(payload: dict[str, Any]) -> str:
+    documents = payload.get("documents") or []
+    if not documents:
+        return "no indexed documents"
+    lines = [f"{len(documents)} document(s):"]
+    for doc in documents:
+        doc_id = doc.get("id", "?")
+        source = doc.get("source", "?")
+        chunks = doc.get("chunks", "?")
+        lines.append(f"  [{doc_id}] {source} ({chunks} chunks)")
+    return "\n".join(lines)
+
+
+def _format_rag_delete(payload: dict[str, Any]) -> str:
+    deleted = payload.get("deleted", 0)
+    return f"deleted {deleted} document(s)"
 
 
 def _format_workspace(workspace_dir: Path) -> str:

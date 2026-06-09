@@ -236,7 +236,7 @@ def _fuzzy_best_match(partial: str) -> str | None:
     """Return the best fuzzy-matching command for autocomplete."""
     prefix = partial.lstrip("/").lower()
     scored: list[tuple[int, str]] = []
-    for cmd, _usage, _desc in COMMAND_DEFS:
+    for _cat, cmd, _usage, _desc in COMMAND_DEFS:
         cmd_name = cmd.lstrip("/").lower()
         if prefix and prefix not in cmd_name:
             # Also try fuzzy

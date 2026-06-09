@@ -5,36 +5,42 @@ from __future__ import annotations
 from textual.widgets import Static
 
 
-# Structured command definitions: (command, usage, description)
-COMMAND_DEFS: list[tuple[str, str, str]] = [
+# Structured command definitions: (category, command, usage, description)
+COMMAND_DEFS: list[tuple[str, str, str, str]] = [
     # Chat
-    ("/state", "", "Show active settings (profile, rag, quality, tokens)"),
-    ("/tokens", "", "Show estimated context usage"),
-    ("/model", "", "Show active model and context window capacity"),
-    ("/history", "", "Show last 12 messages in compact form"),
-    ("/clear", "", "Clear all conversation history"),
-    ("/compact", "", "Summarize conversation history and continue"),
-    ("/profile", "<name>", "Force a router task profile, or omit for auto"),
-    ("/quality", "fast|balanced|best", "Set quality hint metadata"),
-    ("/json", "[on|off]", "Toggle JSON object response mode"),
-    ("/max", "<tokens>", "Override max_tokens, or omit for auto"),
+    ("Chat", "/state", "", "Show active settings (profile, rag, quality, tokens)"),
+    ("Chat", "/tokens", "", "Show estimated context usage"),
+    ("Chat", "/model", "", "Show active model and context window capacity"),
+    ("Chat", "/history", "", "Show last 12 messages in compact form"),
+    ("Chat", "/clear", "", "Clear all conversation history"),
+    ("Chat", "/compact", "", "Summarize conversation history and continue"),
+    ("Chat", "/profile", "<name>", "Force a router task profile, or omit for auto"),
+    ("Chat", "/quality", "fast|balanced|best", "Set quality hint metadata"),
+    ("Chat", "/json", "[on|off]", "Toggle JSON object response mode"),
+    ("Chat", "/max", "<tokens>", "Override max_tokens, or omit for auto"),
+    ("Chat", "/autocompact", "[on|off]", "Toggle auto-compaction at 80% context"),
     # RAG
-    ("/rag", "on|off", "Toggle RAG metadata for chat requests"),
-    ("/rag ingest", "<path-or-url>...", "Ingest local files/directories or URLs"),
-    ("/rag search", "<query>", "Search the active RAG index"),
+    ("RAG", "/rag", "on|off", "Toggle RAG metadata for chat requests"),
+    ("RAG", "/rag ingest", "<path-or-url>...", "Ingest local files/directories or URLs"),
+    ("RAG", "/rag search", "<query>", "Search the active RAG index"),
+    ("RAG", "/rag list", "", "List all indexed documents"),
+    ("RAG", "/rag delete", "<id>", "Remove a document from the RAG index"),
+    ("RAG", "/rag update", "<path>", "Re-index specific paths"),
     # Skills
-    ("/skills", "", "List available skill files"),
-    ("/skill use", "<name>", "Add a skill to the active chat"),
-    ("/skill drop", "<name>", "Remove one active skill"),
-    ("/skill clear", "", "Remove all active skills"),
-    ("/skill show", "<name>", "Print a skill file"),
+    ("Skills", "/skills", "", "List available skill files"),
+    ("Skills", "/skill use", "<name> [key=val...]", "Add a skill with optional params"),
+    ("Skills", "/skill drop", "<name>", "Remove one active skill"),
+    ("Skills", "/skill clear", "", "Remove all active skills"),
+    ("Skills", "/skill show", "<name>", "Print a skill file"),
     # Workspace
-    ("/workspace", "", "Show workspace directory and generated files"),
+    ("Workspace", "/workspace", "", "Show workspace directory and generated files"),
+    ("Workspace", "/preview", "<filename>", "Preview a workspace file"),
     # System
-    ("/health", "", "Check llama-router health"),
-    ("/profiles", "", "List available router profiles"),
-    ("/help", "", "Show full command reference"),
-    ("/exit", "", "Quit Rova"),
+    ("System", "/theme", "<name>", "Switch theme (rova, dracula, solarized-dark, high-contrast)"),
+    ("System", "/health", "", "Check llama-router health"),
+    ("System", "/profiles", "", "List available router profiles"),
+    ("System", "/help", "", "Show full command reference"),
+    ("System", "/exit", "", "Quit Rova"),
 ]
 
 
@@ -74,7 +80,7 @@ def _fuzzy_score(candidate: str, query: str) -> int:
 class CommandPalette(Static):
     """An interactive suggestion palette for slash commands.
 
-    Shows fuzzy-matched commands with selection highlighting.
+    Shows fuzzy-matched commands with category headers and selection highlighting.
     Arrow keys (handled via ChatInput) navigate the list.
     Enter selects, Escape dismisses.
     """
@@ -82,7 +88,7 @@ class CommandPalette(Static):
     def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)
         self._selected_index: int = 0
-        self._items: list[tuple[str, str, str]] = []
+        self._items: list[tuple[str, str, str, str]] = []  # (category, cmd, usage, desc)
         self._filter_text: str = ""
 
     # -- Public API -------------------------------------------------------
@@ -123,8 +129,8 @@ class CommandPalette(Static):
             self._selected_index = (self._selected_index - 1) % len(self._items)
             self._refresh_content()
 
-    def get_selected(self) -> tuple[str, str, str] | None:
-        """Return the (cmd, usage, desc) tuple for the highlighted item."""
+    def get_selected(self) -> tuple[str, str, str, str] | None:
+        """Return the (category, cmd, usage, desc) tuple for the highlighted item."""
         if self._items and 0 <= self._selected_index < len(self._items):
             return self._items[self._selected_index]
         return None
@@ -133,15 +139,15 @@ class CommandPalette(Static):
         """Return the command string of the highlighted item."""
         selected = self.get_selected()
         if selected:
-            cmd = selected[0]
-            usage = selected[1]
+            cmd = selected[1]
+            usage = selected[2]
             return f"{cmd} {usage}".strip()
         return None
 
     # -- Internal ---------------------------------------------------------
 
     def _refresh_content(self) -> None:
-        """Rebuild the palette content with selection highlight."""
+        """Rebuild the palette content with selection highlight and category headers."""
         if not self._items:
             if self._filter_text and self._filter_text != "/":
                 self.update(
@@ -152,7 +158,16 @@ class CommandPalette(Static):
             return
 
         lines: list[str] = []
-        for i, (cmd, usage, desc) in enumerate(self._items):
+        last_category: str | None = None
+
+        for i, (category, cmd, usage, desc) in enumerate(self._items):
+            # Add category header when entering a new category
+            if category != last_category:
+                if lines:
+                    lines.append("")  # blank line between categories
+                lines.append(f"[bold #89b4fa]── {category} ──[/bold #89b4fa]")
+                last_category = category
+
             usage_str = f" {usage}" if usage else ""
             if i == self._selected_index:
                 # Highlighted: mauve arrow + bold command
@@ -175,23 +190,23 @@ class CommandPalette(Static):
 
     def _filter_commands(
         self, filter_text: str
-    ) -> list[tuple[str, str, str]]:
-        """Return commands matching the filter, best first."""
+    ) -> list[tuple[str, str, str, str]]:
+        """Return commands matching the filter, best first, grouped by category."""
         query = filter_text.strip()
         # Show all commands when just "/" is typed
         if not query or query == "/":
             return list(COMMAND_DEFS)
 
         # Fuzzy-match against command name, description, and usage
-        scored: list[tuple[int, str, str, str]] = []
-        for cmd, usage, desc in COMMAND_DEFS:
+        scored: list[tuple[int, str, str, str, str]] = []
+        for category, cmd, usage, desc in COMMAND_DEFS:
             score = _fuzzy_score(cmd, query)
             if score <= 0:
                 score = _fuzzy_score(desc, query)
             if score <= 0 and usage:
                 score = _fuzzy_score(usage, query)
             if score > 0:
-                scored.append((score, cmd, usage, desc))
+                scored.append((score, category, cmd, usage, desc))
 
         scored.sort(key=lambda x: x[0], reverse=True)
-        return [(cmd, usage, desc) for _, cmd, usage, desc in scored]
+        return [(cat, cmd, usage, desc) for _, cat, cmd, usage, desc in scored]

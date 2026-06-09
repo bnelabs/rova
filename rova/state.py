@@ -28,8 +28,11 @@ class ChatState:
     quality: str | None = None
     max_tokens: int | None = None
     json_mode: bool = False
+    auto_compact: bool = True
+    theme: str = "rova"
     skills_dir: Path = field(default_factory=lambda: Path("skills"))
     active_skills: list[str] = field(default_factory=list)
+    skill_params: dict[str, dict[str, str]] = field(default_factory=dict)
     context_tokens: int = DEFAULT_CONTEXT_TOKENS
     history: list[dict[str, str]] = field(default_factory=list)
 
@@ -76,7 +79,11 @@ def estimate_tokens(text: str) -> int:
 def _skill_messages(state: ChatState) -> list[dict[str, str]]:
     messages: list[dict[str, str]] = []
     for name in state.active_skills:
+        params = state.skill_params.get(name)
         text = _read_skill(state.skills_dir, name)
+        if text and params:
+            for key, value in params.items():
+                text = text.replace(f"{{{key}}}", value)
         if text:
             messages.append({"role": "system", "content": f"Active skill: {name}\n{text}"})
     return messages
