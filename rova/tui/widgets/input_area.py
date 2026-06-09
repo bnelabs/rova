@@ -2,7 +2,10 @@
 
 Features:
   - Enter to submit, Shift+Enter for newline
-  - Up/Down arrow key history navigation
+  - Up/Down arrow key history navigation (normal mode)
+  - Up/Down arrow key palette navigation (slash mode: when text starts with /)
+  - Enter selects from palette (slash mode), submits message (normal mode)
+  - Escape dismisses palette and clears slash input
   - Fuzzy slash-command matching on Tab
   - Slash detection posts SlashChanged messages for the command palette
 """
@@ -19,17 +22,26 @@ from rova.tui.widgets.command_palette import COMMAND_DEFS
 class ChatInput(TextArea):
     """Multi-line text input for the chat interface.
 
+    Two modes:
+      Normal  — Enter submits, Up/Down navigate history
+      Slash   — text starts with /, palette is visible:
+                Up/Down navigate palette, Enter selects, Escape dismisses
+
     Posts:
-      ChatSubmitted — when user presses Enter with non-empty text
-      SlashChanged  — when text changes while starting with /
+      ChatSubmitted  — when user presses Enter with non-empty text (normal mode)
+      SlashChanged   — when text changes while starting with /
+      SlashNavigate  — when user presses Up/Down in slash mode
+      SlashSelect    — when user presses Enter in slash mode
+      SlashDismiss   — when user presses Escape in slash mode
     """
 
     BINDINGS = [
         Binding("enter", "submit", "Submit", show=False),
+        Binding("escape", "dismiss_slash", "Dismiss", show=False),
     ]
 
     class ChatSubmitted(Message):
-        """Emitted on Enter with the trimmed text."""
+        """Emitted on Enter with the trimmed text (normal mode)."""
 
         def __init__(self, value: str) -> None:
             super().__init__()
@@ -42,6 +54,23 @@ class ChatInput(TextArea):
             super().__init__()
             self.value = value
 
+    class SlashNavigate(Message):
+        """Emitted when user presses Up/Down in slash mode."""
+
+        def __init__(self, direction: int) -> None:
+            super().__init__()
+            self.direction = direction  # -1 for up, 1 for down
+
+    class SlashSelect(Message):
+        """Emitted when user presses Enter in slash mode."""
+
+        pass
+
+    class SlashDismiss(Message):
+        """Emitted when user presses Escape in slash mode."""
+
+        pass
+
     def __init__(self, **kwargs) -> None:
         super().__init__(
             text="",
@@ -53,11 +82,23 @@ class ChatInput(TextArea):
         self._history_index: int = -1
         self._scratch: str = ""  # saved current text when navigating history
 
-    # -- Submit ----------------------------------------------------------
+    # -- Properties -------------------------------------------------------
+
+    @property
+    def in_slash_mode(self) -> bool:
+        """True when the current text starts with /."""
+        return self.text.startswith("/")
+
+    # -- Submit -----------------------------------------------------------
 
     def action_submit(self) -> None:
-        """Enter key: submit the current text."""
+        """Enter key: select from palette (slash mode) or submit (normal mode)."""
         value = self.text
+        if self.in_slash_mode:
+            self.post_message(self.SlashSelect())
+            return
+
+        # Normal mode: submit the message
         if value.strip():
             self._history.append(value)
             if len(self._history) > 200:
@@ -67,20 +108,40 @@ class ChatInput(TextArea):
             self.post_message(self.ChatSubmitted(value))
         self.clear()
 
-    # -- Slash detection -------------------------------------------------
+    # -- Slash dismiss ----------------------------------------------------
 
-    def _on_text_area_changed(self, event: TextArea.Changed) -> None:
-        """Detect slash commands and post filter events."""
+    def action_dismiss_slash(self) -> None:
+        """Escape key: dismiss palette and clear slash input."""
+        if self.in_slash_mode:
+            self.post_message(self.SlashDismiss())
+            self.clear()
+
+    # -- Slash detection --------------------------------------------------
+
+    def on_mount(self) -> None:
+        """Start polling for slash commands."""
+        self._prev_text: str = ""
+        self.set_interval(0.1, self._poll_slash)
+
+    def _poll_slash(self) -> None:
+        """Check if text changed and post SlashChanged."""
         text = self.text
-        if text.startswith("/"):
-            self.post_message(self.SlashChanged(text))
-        else:
-            self.post_message(self.SlashChanged(""))
+        if text != self._prev_text:
+            self._prev_text = text
+            if text.startswith("/"):
+                self.post_message(self.SlashChanged(text))
+            else:
+                self.post_message(self.SlashChanged(""))
 
-    # -- Arrow-key history -----------------------------------------------
+    # -- Arrow-key handling -----------------------------------------------
 
     def action_cursor_up(self) -> None:
-        """Up arrow: navigate history when at first line, else move cursor."""
+        """Up arrow: navigate palette (slash mode) or history (normal mode)."""
+        if self.in_slash_mode:
+            self.post_message(self.SlashNavigate(-1))
+            return
+
+        # Normal mode: history navigation
         row, _col = self.cursor_location
         if row == 0 and self._history:
             self._navigate_history(-1)
@@ -88,7 +149,12 @@ class ChatInput(TextArea):
             super().action_cursor_up()
 
     def action_cursor_down(self) -> None:
-        """Down arrow: navigate history when at last line, else move cursor."""
+        """Down arrow: navigate palette (slash mode) or history (normal mode)."""
+        if self.in_slash_mode:
+            self.post_message(self.SlashNavigate(1))
+            return
+
+        # Normal mode: history navigation
         row, _col = self.cursor_location
         last_row = self.document.line_count - 1
         if row >= last_row and self._history:
@@ -114,7 +180,7 @@ class ChatInput(TextArea):
             self._history_index = -1
             self.text = self._scratch
 
-    # -- Tab autocomplete (fuzzy) ----------------------------------------
+    # -- Tab autocomplete (fuzzy) -----------------------------------------
 
     def action_focus_next(self) -> None:
         """Tab: fuzzy-autocomplete slash commands, else move focus."""
@@ -128,7 +194,7 @@ class ChatInput(TextArea):
             self.screen.action_focus_next()
 
 
-# -- Fuzzy matching --------------------------------------------------------
+# -- Fuzzy matching ----------------------------------------------------------
 
 def _fuzzy_score(candidate: str, query: str) -> int:
     """Score a candidate against a query using character contiguity.

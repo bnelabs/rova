@@ -1,4 +1,4 @@
-"""Command palette dropdown that appears when user types /."""
+"""Interactive command palette — shows slash commands with arrow-key navigation."""
 
 from __future__ import annotations
 
@@ -72,52 +72,126 @@ def _fuzzy_score(candidate: str, query: str) -> int:
 
 
 class CommandPalette(Static):
-    """A suggestion palette that appears above the input when typing /.
+    """An interactive suggestion palette for slash commands.
 
-    Shows fuzzy-matched commands with descriptions as the user types."""
+    Shows fuzzy-matched commands with selection highlighting.
+    Arrow keys (handled via ChatInput) navigate the list.
+    Enter selects, Escape dismisses.
+    """
 
-    MAX_VISIBLE = 12
+    def __init__(self, **kwargs) -> None:
+        super().__init__(**kwargs)
+        self._selected_index: int = 0
+        self._items: list[tuple[str, str, str]] = []
+        self._filter_text: str = ""
+
+    # -- Public API -------------------------------------------------------
+
+    @property
+    def selected_index(self) -> int:
+        return self._selected_index
+
+    @property
+    def item_count(self) -> int:
+        return len(self._items)
 
     def show_commands(self, filter_text: str) -> None:
-        """Show commands fuzzy-matching the partial input."""
-        query = filter_text.strip()
-        lines: list[str] = []
-
-        if query:
-            # Score and sort commands
-            scored: list[tuple[int, str, str, str]] = []
-            for cmd, usage, desc in COMMAND_DEFS:
-                score = _fuzzy_score(cmd, query)
-                # Also match descriptions and usage
-                if score <= 0:
-                    score = _fuzzy_score(desc, query)
-                if score <= 0 and usage:
-                    score = _fuzzy_score(usage, query)
-                if score > 0 or query.lstrip("/").lower() in cmd.lower():
-                    scored.append((max(score, 1), cmd, usage, desc))
-
-            scored.sort(key=lambda x: x[0], reverse=True)
-
-            for score, cmd, usage, desc in scored[: self.MAX_VISIBLE]:
-                usage_str = f" {usage}" if usage else ""
-                lines.append(f"[bold]{cmd}[/bold]{usage_str}")
-                lines.append(f"  [dim]{desc}[/dim]")
-
-        if not lines:
-            if query:
-                lines.append(f"[dim]no commands matching '{query}'[/dim]")
-            else:
-                # Show all commands when just "/"
-                for cmd, usage, desc in COMMAND_DEFS:
-                    usage_str = f" {usage}" if usage else ""
-                    lines.append(f"[bold]{cmd}[/bold]{usage_str}")
-                    lines.append(f"  [dim]{desc}[/dim]")
-
-        self.update("\n".join(lines))
-        if query:
-            self.add_class("-visible")
-        else:
-            self.remove_class("-visible")
+        """Filter commands and show the palette."""
+        self._filter_text = filter_text
+        self._items = self._filter_commands(filter_text)
+        self._selected_index = 0
+        self._refresh_content()
+        self.add_class("-visible")
 
     def hide(self) -> None:
+        """Hide the palette."""
         self.remove_class("-visible")
+
+    @property
+    def is_visible(self) -> bool:
+        return self.has_class("-visible")
+
+    def select_next(self) -> None:
+        """Move selection down one item (wraps)."""
+        if self._items:
+            self._selected_index = (self._selected_index + 1) % len(self._items)
+            self._refresh_content()
+
+    def select_prev(self) -> None:
+        """Move selection up one item (wraps)."""
+        if self._items:
+            self._selected_index = (self._selected_index - 1) % len(self._items)
+            self._refresh_content()
+
+    def get_selected(self) -> tuple[str, str, str] | None:
+        """Return the (cmd, usage, desc) tuple for the highlighted item."""
+        if self._items and 0 <= self._selected_index < len(self._items):
+            return self._items[self._selected_index]
+        return None
+
+    def get_selected_command(self) -> str | None:
+        """Return the command string of the highlighted item."""
+        selected = self.get_selected()
+        if selected:
+            cmd = selected[0]
+            usage = selected[1]
+            return f"{cmd} {usage}".strip()
+        return None
+
+    # -- Internal ---------------------------------------------------------
+
+    def _refresh_content(self) -> None:
+        """Rebuild the palette content with selection highlight."""
+        if not self._items:
+            if self._filter_text and self._filter_text != "/":
+                self.update(
+                    f"[dim]no commands matching '{self._filter_text}'[/dim]"
+                )
+            else:
+                self.update("")
+            return
+
+        lines: list[str] = []
+        for i, (cmd, usage, desc) in enumerate(self._items):
+            usage_str = f" {usage}" if usage else ""
+            if i == self._selected_index:
+                # Highlighted: mauve arrow + bold command
+                lines.append(
+                    f"[bold #cba6f7]▶ {cmd}{usage_str}[/bold #cba6f7]  "
+                    f"[dim #6c7086]{desc}[/dim #6c7086]"
+                )
+            else:
+                lines.append(
+                    f"  [bold]{cmd}{usage_str}[/bold]  [dim]{desc}[/dim]"
+                )
+
+        # Add hint footer
+        lines.append("")
+        lines.append(
+            "[dim #585b70]↑↓ navigate  ↵ select  esc dismiss  tab autocomplete[/dim #585b70]"
+        )
+
+        self.update("\n".join(lines))
+
+    def _filter_commands(
+        self, filter_text: str
+    ) -> list[tuple[str, str, str]]:
+        """Return commands matching the filter, best first."""
+        query = filter_text.strip()
+        # Show all commands when just "/" is typed
+        if not query or query == "/":
+            return list(COMMAND_DEFS)
+
+        # Fuzzy-match against command name, description, and usage
+        scored: list[tuple[int, str, str, str]] = []
+        for cmd, usage, desc in COMMAND_DEFS:
+            score = _fuzzy_score(cmd, query)
+            if score <= 0:
+                score = _fuzzy_score(desc, query)
+            if score <= 0 and usage:
+                score = _fuzzy_score(usage, query)
+            if score > 0:
+                scored.append((score, cmd, usage, desc))
+
+        scored.sort(key=lambda x: x[0], reverse=True)
+        return [(cmd, usage, desc) for _, cmd, usage, desc in scored]

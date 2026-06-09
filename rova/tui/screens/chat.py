@@ -18,9 +18,23 @@ from rova.commands import handle_slash_command
 from rova.tools import execute_tool_call, TOOL_DEFINITIONS
 from rova.tui.widgets.chat_view import ChatView
 from rova.tui.widgets.input_area import ChatInput
-from rova.tui.widgets.command_palette import CommandPalette
+from rova.tui.widgets.command_palette import CommandPalette, COMMAND_DEFS
 from rova.tui.widgets.sidebar import Sidebar
 from rova.tui.widgets.status_bar import StatusBarWidget
+
+
+def _is_exact_command(text: str) -> bool:
+    """Check if the input text has a recognized command as its first word.
+
+    /help           → True  (exact match)
+    /profile simple → True  (/profile is a known command)
+    /prf            → False (fuzzy/partial, needs palette selection)
+    """
+    first_word = text.strip().split()[0] if text.strip() else ""
+    for cmd, _usage, _desc in COMMAND_DEFS:
+        if cmd == first_word:
+            return True
+    return False
 
 
 class ChatScreen(Screen[None]):
@@ -40,6 +54,7 @@ class ChatScreen(Screen[None]):
 
     def on_unmount(self) -> None:
         import asyncio
+
         asyncio.create_task(self._http.aclose())
 
     def compose(self) -> ComposeResult:
@@ -54,20 +69,20 @@ class ChatScreen(Screen[None]):
     def on_mount(self) -> None:
         self._refresh_all()
 
-    # --- Input handling ---------------------------------------------------
+    # -- Input handling ---------------------------------------------------
 
     def on_chat_input_chat_submitted(self, event: ChatInput.ChatSubmitted) -> None:
+        """Handle a normal (non-slash) message submission."""
         text = event.value.strip()
         if not text:
             return
 
-        palette = self.query_one("#command-palette", CommandPalette)
-        palette.hide()
-
         chat_view = self.query_one("#chat-view", ChatView)
 
         if text.startswith("/"):
-            result = handle_slash_command(text, self.state, self.client, self.workspace)
+            result = handle_slash_command(
+                text, self.state, self.client, self.workspace
+            )
             if text in {"/exit", "/quit"}:
                 self.app.exit()
                 return
@@ -78,16 +93,73 @@ class ChatScreen(Screen[None]):
 
         self._refresh_all()
 
-    # --- Slash command palette --------------------------------------------
+    # -- Slash command palette --------------------------------------------
 
     def on_chat_input_slash_changed(self, event: ChatInput.SlashChanged) -> None:
+        """Update the command palette filter as the user types."""
         palette = self.query_one("#command-palette", CommandPalette)
         if event.value.startswith("/"):
             palette.show_commands(event.value)
         else:
             palette.hide()
 
-    # --- Message sending & tool loop --------------------------------------
+    def on_chat_input_slash_navigate(self, event: ChatInput.SlashNavigate) -> None:
+        """Move the palette selection up or down."""
+        palette = self.query_one("#command-palette", CommandPalette)
+        if not palette.is_visible:
+            return
+        if event.direction == -1:
+            palette.select_prev()
+        else:
+            palette.select_next()
+
+    def on_chat_input_slash_select(self, event: ChatInput.SlashSelect) -> None:
+        """Enter pressed in slash mode — select command or execute directly."""
+        palette = self.query_one("#command-palette", CommandPalette)
+        input_widget = self.query_one("#chat-input", ChatInput)
+        chat_view = self.query_one("#chat-view", ChatView)
+
+        current_text = input_widget.text.strip()
+        palette.hide()
+
+        # If the user typed an exact command (like /help, /clear, /exit),
+        # execute it directly without going through the palette picker.
+        if _is_exact_command(current_text):
+            result = handle_slash_command(
+                current_text, self.state, self.client, self.workspace
+            )
+            if current_text in {"/exit", "/quit"}:
+                self.app.exit()
+                return
+            chat_view.add_system(result)
+            input_widget.clear()
+            self._refresh_all()
+            return
+
+        # Otherwise: fill the input with the selected command so the user
+        # can add arguments, then press Enter again to execute.
+        selected_cmd = palette.get_selected_command()
+        if selected_cmd:
+            input_widget.text = selected_cmd + " "
+            # Move cursor to end
+            input_widget.cursor_location = (
+                input_widget.document.line_count - 1,
+                len(input_widget.text),
+            )
+            # Re-post slash changed so the palette updates for the new text
+            if selected_cmd.startswith("/"):
+                input_widget.post_message(
+                    ChatInput.SlashChanged(selected_cmd + " ")
+                )
+        self._refresh_all()
+
+    def on_chat_input_slash_dismiss(self, event: ChatInput.SlashDismiss) -> None:
+        """Escape pressed — hide the palette."""
+        palette = self.query_one("#command-palette", CommandPalette)
+        palette.hide()
+        self._refresh_all()
+
+    # -- Message sending & tool loop --------------------------------------
 
     @work(exclusive=True)
     async def _send_message(self, message: str) -> None:
@@ -95,7 +167,9 @@ class ChatScreen(Screen[None]):
         tools = TOOL_DEFINITIONS if self.state.profile == "tool_agent" else None
 
         try:
-            result = await self.client.async_send(message, self.state, tools, self._http)
+            result = await self.client.async_send(
+                message, self.state, tools, self._http
+            )
         except Exception as exc:
             chat_view.add_error(f"Send failed: {exc}")
             self._refresh_all()
@@ -121,11 +195,13 @@ class ChatScreen(Screen[None]):
                 result_content = tool_result_msg.get("content", "")
                 chat_view.add_tool_result(result_content)
 
-                self.state.history.append({
-                    "role": "assistant",
-                    "content": result.content or "",
-                    "tool_calls": result.tool_calls,
-                })
+                self.state.history.append(
+                    {
+                        "role": "assistant",
+                        "content": result.content or "",
+                        "tool_calls": result.tool_calls,
+                    }
+                )
                 self.state.history.append(tool_result_msg)
 
             try:
@@ -143,7 +219,7 @@ class ChatScreen(Screen[None]):
         chat_view.add_assistant(result.content, result.wall_seconds)
         self._refresh_all()
 
-    # --- Refresh helpers --------------------------------------------------
+    # -- Refresh helpers --------------------------------------------------
 
     def _render_header(self) -> str:
         usage = token_usage(self.state)
@@ -171,13 +247,17 @@ class ChatScreen(Screen[None]):
 
     def _refresh_sidebar(self) -> None:
         try:
-            self.query_one("#sidebar", Sidebar).refresh_state(self.state, self.workspace)
+            self.query_one("#sidebar", Sidebar).refresh_state(
+                self.state, self.workspace
+            )
         except Exception:
             pass
 
     def _refresh_status_bar(self) -> None:
         try:
             usage = token_usage(self.state)
-            self.query_one("#status-bar", StatusBarWidget).update_status(self.state, usage)
+            self.query_one("#status-bar", StatusBarWidget).update_status(
+                self.state, usage
+            )
         except Exception:
             pass

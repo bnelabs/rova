@@ -45,7 +45,7 @@ Screen {
 #command-palette {
     dock: bottom;
     height: auto;
-    max-height: 14;
+    max-height: 50%;
     margin: 0 1 1 1;
     padding: 1 2;
     background: #1e1e2e;
@@ -54,6 +54,17 @@ Screen {
     border-bottom: none;
     display: none;
     overflow-y: auto;
+    scrollbar-size: 1 0;
+}
+
+#command-palette Scrollbar {
+    background: #11111b;
+    color: #585b70;
+}
+
+#command-palette Scrollbar:hover {
+    background: #313244;
+    color: #cba6f7;
 }
 
 #command-palette.-visible {
