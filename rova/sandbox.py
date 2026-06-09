@@ -12,11 +12,62 @@ from __future__ import annotations
 
 import abc
 import os
+import re
 import shutil
 import subprocess
 import sys
 import tempfile
 from typing import Any
+
+from rova.constants import (
+    SANDBOX_CPU_SECONDS,
+    SANDBOX_FILESIZE_MB,
+    SANDBOX_MEMORY_MB,
+    SANDBOX_TIMEOUT,
+)
+from rova.errors import SandboxUnavailableError
+
+# -- Environment sanitisation -------------------------------------------
+
+# Env vars that are safe to pass through to the sandbox.
+_SAFE_ENV_PREFIXES = (
+    "PATH", "HOME", "TMPDIR", "TMP", "LANG", "LC_", "USER", "LOGNAME",
+    "TERM", "SHELL", "COLORTERM", "DISPLAY", "WAYLAND_DISPLAY",
+    "XDG_", "DBUS_", "PYTHONUNBUFFERED",
+)
+
+# Patterns that indicate a secret/credential-bearing variable.
+_SECRET_PATTERNS = re.compile(
+    r"(?i)(SECRET|TOKEN|KEY|PASSWORD|PASSWD|CREDENTIAL|CERT|AUTH)",
+)
+
+
+def _sanitize_env(tmpdir: str) -> dict[str, str]:
+    """Return a minimal environment dict with secrets stripped.
+
+    Only safe variables are forwarded. Everything else is dropped.
+    """
+    clean: dict[str, str] = {}
+    for key, value in os.environ.items():
+        # Drop known secret-bearing vars
+        if _SECRET_PATTERNS.search(key):
+            continue
+        # Drop cloud-provider credential vars
+        if any(key.startswith(p) for p in (
+            "AWS_", "GCP_", "AZURE_", "GOOGLE_",
+            "OPENAI_", "ANTHROPIC_", "COHERE_",
+            "GITHUB_TOKEN", "DOCKER_", "KUBECONFIG", "SSH_",
+        )):
+            continue
+        # Keep only explicitly safe prefixes
+        if any(key == prefix or key.startswith(prefix) for prefix in _SAFE_ENV_PREFIXES):
+            clean[key] = value
+
+    # Override with sandbox-specific paths
+    clean["HOME"] = tmpdir
+    clean["TMPDIR"] = tmpdir
+    clean["PYTHONPATH"] = ""
+    return clean
 
 
 class SandboxBackend(abc.ABC):
@@ -52,7 +103,7 @@ class RLimitSandbox(SandboxBackend):
     def is_available() -> bool:
         return sys.platform != "win32"
 
-    def execute(self, code: str, timeout: float = 30.0) -> subprocess.CompletedProcess[str]:
+    def execute(self, code: str, timeout: float = SANDBOX_TIMEOUT) -> subprocess.CompletedProcess[str]:
         tmpdir = tempfile.mkdtemp(prefix="rova_sandbox_")
         try:
             kwargs: dict[str, Any] = {
@@ -60,12 +111,7 @@ class RLimitSandbox(SandboxBackend):
                 "text": True,
                 "timeout": timeout,
                 "cwd": tmpdir,
-                "env": {
-                    "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
-                    "HOME": tmpdir,
-                    "TMPDIR": tmpdir,
-                    "PYTHONPATH": "",
-                },
+                "env": _sanitize_env(tmpdir),
             }
             if sys.platform != "win32":
                 kwargs["preexec_fn"] = _sandbox_preexec
@@ -79,11 +125,11 @@ def _sandbox_preexec() -> None:
     """Set resource limits for sandboxed Python execution (Unix only)."""
     import resource
 
-    mem_bytes = 256 * 1024 * 1024    # 256 MB
+    mem_bytes = SANDBOX_MEMORY_MB * 1024 * 1024
     resource.setrlimit(resource.RLIMIT_AS, (mem_bytes, mem_bytes))
-    resource.setrlimit(resource.RLIMIT_CPU, (25, 25))
+    resource.setrlimit(resource.RLIMIT_CPU, (SANDBOX_CPU_SECONDS, SANDBOX_CPU_SECONDS))
     resource.setrlimit(resource.RLIMIT_NPROC, (0, 0))
-    resource.setrlimit(resource.RLIMIT_FSIZE, (50 * 1024 * 1024, 50 * 1024 * 1024))
+    resource.setrlimit(resource.RLIMIT_FSIZE, (SANDBOX_FILESIZE_MB * 1024 * 1024, SANDBOX_FILESIZE_MB * 1024 * 1024))
 
 
 class BwrapSandbox(SandboxBackend):
@@ -133,7 +179,7 @@ class BwrapSandbox(SandboxBackend):
         except Exception:
             return False
 
-    def execute(self, code: str, timeout: float = 30.0) -> subprocess.CompletedProcess[str]:
+    def execute(self, code: str, timeout: float = SANDBOX_TIMEOUT) -> subprocess.CompletedProcess[str]:
         tmpdir = tempfile.mkdtemp(prefix="rova_bwrap_")
         try:
             cmd = [
@@ -161,6 +207,7 @@ class BwrapSandbox(SandboxBackend):
                 text=True,
                 timeout=timeout,
                 cwd="/tmp",
+                env=_sanitize_env(tmpdir),
             )
         finally:
             shutil.rmtree(tmpdir, ignore_errors=True)
@@ -172,7 +219,7 @@ class NoopSandbox(SandboxBackend):
 
     name = "none"
 
-    def execute(self, code: str, timeout: float = 30.0) -> subprocess.CompletedProcess[str]:
+    def execute(self, code: str, timeout: float = SANDBOX_TIMEOUT) -> subprocess.CompletedProcess[str]:
         return subprocess.run(
             [sys.executable, "-c", code],
             capture_output=True,
@@ -219,13 +266,17 @@ def get_backend(name: str) -> SandboxBackend | None:
     """Look up a sandbox backend by name (case-insensitive).
 
     Returns None if no backend with that name is found.
+    Raises SandboxUnavailableError if the named backend exists but
+    cannot be used on this system.
     """
     name = name.lower()
     for cls in _BACKENDS:
         if cls.name == name:
             if cls.is_available():
                 return cls()
-            return None
+            raise SandboxUnavailableError(
+                f"Sandbox backend '{name}' is not available on this system"
+            )
     if name == "none":
         return NoopSandbox()
     return None

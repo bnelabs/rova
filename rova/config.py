@@ -20,6 +20,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "plugins_dir": str(CONFIG_DIR / "plugins"),
     "quality": None,
     "profile": None,
+    "model": None,
     "auto_compact": True,
     "sandbox_backend": "auto",
     "mcp_servers": [],
@@ -68,6 +69,8 @@ def load_state_overrides() -> dict[str, Any]:
         overrides["quality"] = config["quality"]
     if config.get("profile"):
         overrides["profile"] = config["profile"]
+    if config.get("model"):
+        overrides["model"] = config["model"]
     if "auto_compact" in config:
         overrides["auto_compact"] = config["auto_compact"]
     return overrides

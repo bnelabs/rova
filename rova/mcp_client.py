@@ -23,6 +23,8 @@ import subprocess
 from dataclasses import dataclass, field
 from typing import Any
 
+from rova.errors import MCPConnectionError, MCPToolError
+
 
 @dataclass
 class MCPServerConfig:
@@ -106,11 +108,11 @@ class MCPClient:
                 env=self._config.env,
             )
         except FileNotFoundError as err:
-            raise ConnectionError(
+            raise MCPConnectionError(
                 f"MCP server '{self._config.name}': command not found: {self._config.command}"
             ) from err
         except OSError as exc:
-            raise ConnectionError(
+            raise MCPConnectionError(
                 f"MCP server '{self._config.name}': {exc}"
             ) from exc
 
@@ -122,7 +124,7 @@ class MCPClient:
                 "clientInfo": {"name": "rova", "version": "0.2.0"},
             })
             if init_resp is None:
-                raise ConnectionError(f"MCP server '{self._config.name}': no initialize response")
+                raise MCPConnectionError(f"MCP server '{self._config.name}': no initialize response")
 
             # Discover tools
             tools_resp = self._call("tools/list")
@@ -198,7 +200,10 @@ class MCPClient:
     def call_tool(self, tool_name: str, arguments: dict[str, Any]) -> str:
         """Execute a tool via MCP and return the result as a string."""
         if not self._connected:
-            return f"error: MCP server '{self._config.name}' not connected"
+            raise MCPToolError(
+                self._config.name, tool_name,
+                f"MCP server '{self._config.name}' not connected",
+            )
 
         result = self._call("tools/call", {
             "name": tool_name,
@@ -206,7 +211,10 @@ class MCPClient:
         })
 
         if result is None:
-            return f"error: MCP tool '{tool_name}' returned no result"
+            raise MCPToolError(
+                self._config.name, tool_name,
+                f"MCP tool '{tool_name}' returned no result",
+            )
 
         # MCP returns content as a list of content items
         content = result.get("content") or []
@@ -239,7 +247,7 @@ class MCPManager:
         client = MCPClient(config)
         try:
             client.connect()
-        except ConnectionError as exc:
+        except MCPConnectionError as exc:
             return str(exc)
         except Exception as exc:
             return f"failed to connect to '{config.name}': {exc}"
@@ -291,7 +299,10 @@ class MCPManager:
             for tool in client.tools:
                 fq_name = f"mcp_{tool.server_name}_{tool.name}"
                 if fq_name == full_name:
-                    return client.call_tool(tool.name, arguments)
+                    try:
+                        return client.call_tool(tool.name, arguments)
+                    except MCPToolError as exc:
+                        return str(exc)
         return None
 
 

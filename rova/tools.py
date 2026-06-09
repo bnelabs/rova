@@ -5,20 +5,180 @@ from __future__ import annotations
 import ast
 import datetime
 import html.parser
+import ipaddress
 import json
 import operator
 import os
 import platform
 import re
+import socket
 import subprocess
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 import httpx
 
+from rova.constants import (
+    WEB_FETCH_MAX_CHARS,
+    WEB_FETCH_TIMEOUT,
+    WEB_SEARCH_MAX_RESULTS,
+    WEB_SEARCH_TIMEOUT,
+)
 from rova.mcp_client import get_mcp_manager
 from rova.plugins import get_registry
 from rova.sandbox import get_sandbox
+
+# -- Limits for tool arguments ------------------------------------------
+
+_MAX_CODE_SIZE = 100 * 1024          # 100 KB Python code
+_MAX_FILE_CONTENT = 10 * 1024 * 1024 # 10 MB file write
+_MAX_FILE_READ = 50 * 1024 * 1024    # 50 MB file read
+_MAX_SEARCH_QUERY = 500              # chars
+
+# -- URL validation -----------------------------------------------------
+
+_ALLOWED_URL_SCHEMES = {"http", "https"}
+
+# Private/reserved network blocks (IPv4)
+_PRIVATE_NETS = [
+    ipaddress.ip_network("10.0.0.0/8"),
+    ipaddress.ip_network("127.0.0.0/8"),
+    ipaddress.ip_network("169.254.0.0/16"),
+    ipaddress.ip_network("172.16.0.0/12"),
+    ipaddress.ip_network("192.168.0.0/16"),
+    ipaddress.ip_network("0.0.0.0/8"),
+]
+
+
+def _check_ssrf(url_str: str) -> str | None:
+    """Return an error string if *url_str* points to a private/internal host.
+
+    Returns None when the URL is safe to fetch.
+    """
+    try:
+        parsed = urlparse(url_str)
+    except Exception:
+        return "invalid URL"
+
+    if parsed.scheme not in _ALLOWED_URL_SCHEMES:
+        return f"URL scheme '{parsed.scheme}' not allowed (use http or https)"
+
+    hostname = parsed.hostname
+    if not hostname:
+        return "URL has no hostname"
+
+    # Block localhost aliases
+    if hostname.lower() in {"localhost", "127.0.0.1", "::1", "0.0.0.0"}:
+        return f"URL host '{hostname}' is not allowed"
+
+    # Block link-local / site-local IPv6
+    if hostname.lower().startswith("fe80:") or hostname.lower() == "::1":
+        return f"URL host '{hostname}' is not allowed"
+
+    # Resolve and check against private blocks
+    try:
+        ip = ipaddress.ip_address(hostname)
+    except ValueError:
+        # Not an IP literal — do a DNS resolution check
+        try:
+            resolved = socket.getaddrinfo(hostname, None, family=socket.AF_INET)
+        except socket.gaierror:
+            return f"cannot resolve hostname: {hostname}"
+        ips = {r[4][0] for r in resolved}
+    else:
+        ips = {str(ip)}
+
+    for ip_str in ips:
+        try:
+            addr = ipaddress.ip_address(ip_str)
+        except ValueError:
+            continue
+        if addr.is_loopback or addr.is_link_local or addr.is_multicast:
+            return f"IP address {ip_str} is not allowed"
+        for net in _PRIVATE_NETS:
+            if addr in net:
+                return f"IP address {ip_str} is private/internal — not allowed"
+
+    return None  # safe
+
+
+def _validate_tool_args(name: str, arguments: dict[str, Any]) -> str | None:
+    """Validate tool arguments before execution.
+
+    Returns an error string on failure, or None on success.
+    """
+    if name == "execute_python":
+        code = arguments.get("code", "")
+        if len(code) > _MAX_CODE_SIZE:
+            return f"code too large ({len(code)} bytes, max {_MAX_CODE_SIZE})"
+
+    elif name == "write_file":
+        path = arguments.get("path", "")
+        if not path:
+            return "path is required"
+        content = arguments.get("content", "")
+        if len(content) > _MAX_FILE_CONTENT:
+            return f"content too large ({len(content)} bytes, max {_MAX_FILE_CONTENT})"
+
+    elif name == "read_file":
+        path = arguments.get("path", "")
+        if not path:
+            return "path is required"
+
+    elif name == "web_search":
+        query = arguments.get("query", "")
+        if not query:
+            return "query is required"
+        if len(query) > _MAX_SEARCH_QUERY:
+            return f"query too long ({len(query)} chars, max {_MAX_SEARCH_QUERY})"
+
+    elif name == "web_fetch":
+        url = arguments.get("url", "")
+        if not url:
+            return "url is required"
+        err = _check_ssrf(url)
+        if err:
+            return f"web_fetch rejected: {err}"
+
+    elif name == "calculate":
+        expression = arguments.get("expression", "")
+        if not expression:
+            return "expression is required"
+
+    return None
+
+
+# -- Path validation (symlink-aware) ------------------------------------
+
+
+def _validate_path(path: str, workspace_dir: Path) -> Path:
+    """Resolve *path* and verify it stays within the workspace.
+
+    Differs from ``_resolve_path`` by also checking every path component
+    for symlinks, preventing symlink-based escapes.
+    """
+    resolved = _resolve_path(path, workspace_dir)
+
+    # Walk parent components and check for symlinks
+    workspace_resolved = workspace_dir.resolve()
+    for parent in [resolved, *resolved.parents]:
+        try:
+            parent.relative_to(workspace_resolved)
+        except ValueError:
+            break  # reached workspace boundary
+
+        if parent.is_symlink():
+            real = parent.resolve()
+            try:
+                real.relative_to(workspace_resolved)
+            except ValueError as err:
+                raise PermissionError(
+                    f"Access denied: '{path}' contains a symlink pointing "
+                    f"outside the workspace ({real})"
+                ) from err
+
+    return resolved
 
 
 def execute_tool_call(
@@ -32,6 +192,16 @@ def execute_tool_call(
     arguments = (
         json.loads(raw_arguments) if isinstance(raw_arguments, str) else raw_arguments
     )
+
+    # Validate arguments before dispatching
+    error = _validate_tool_args(name, arguments)
+    if error:
+        return {
+            "role": "tool",
+            "tool_call_id": call.get("id", ""),
+            "name": name,
+            "content": f"validation error: {error}",
+        }
 
     if name == "execute_python":
         result = execute_python(arguments, workspace_dir)
@@ -111,7 +281,7 @@ def write_file(arguments: dict[str, Any], workspace_dir: Path) -> str:
     path = arguments.get("path", "")
     content = arguments.get("content", "")
     try:
-        file_path = _resolve_path(path, workspace_dir)
+        file_path = _validate_path(path, workspace_dir)
         file_path.parent.mkdir(parents=True, exist_ok=True)
         file_path.write_text(content, encoding="utf-8")
         return f"wrote {len(content)} bytes to {file_path}"
@@ -122,7 +292,10 @@ def write_file(arguments: dict[str, Any], workspace_dir: Path) -> str:
 def read_file(arguments: dict[str, Any], workspace_dir: Path) -> str:
     path = arguments.get("path", "")
     try:
-        file_path = _resolve_path(path, workspace_dir)
+        file_path = _validate_path(path, workspace_dir)
+        # Guard against reading huge files
+        if file_path.stat().st_size > _MAX_FILE_READ:
+            return f"error: file too large ({file_path.stat().st_size} bytes, max {_MAX_FILE_READ})"
         return file_path.read_text(encoding="utf-8", errors="replace")
     except Exception as e:
         return str(e)
@@ -131,7 +304,7 @@ def read_file(arguments: dict[str, Any], workspace_dir: Path) -> str:
 def list_files(arguments: dict[str, Any], workspace_dir: Path) -> str:
     path = arguments.get("path", ".")
     try:
-        target = _resolve_path(path, workspace_dir)
+        target = _validate_path(path, workspace_dir)
         if not target.exists():
             return f"path not found: {target}"
         entries = []
@@ -187,7 +360,7 @@ def web_search(arguments: dict[str, Any]) -> str:
         response = httpx.get(
             "https://html.duckduckgo.com/html/",
             params={"q": query},
-            timeout=15.0,
+            timeout=WEB_SEARCH_TIMEOUT,
             headers={"User-Agent": "rova/0.2.0"},
             follow_redirects=True,
         )
@@ -205,14 +378,14 @@ def web_search(arguments: dict[str, Any]) -> str:
 def web_fetch(arguments: dict[str, Any]) -> str:
     """Fetch a URL and return its text content (HTML tags stripped)."""
     url = arguments.get("url", "")
-    max_length = arguments.get("max_length", 8000)
+    max_length = arguments.get("max_length", WEB_FETCH_MAX_CHARS)
     if not url:
         return "error: url is required"
 
     try:
         response = httpx.get(
             url,
-            timeout=15.0,
+            timeout=WEB_FETCH_TIMEOUT,
             headers={"User-Agent": "rova/0.2.0"},
             follow_redirects=True,
         )
@@ -246,7 +419,7 @@ def _parse_ddg_results(html: str) -> list[dict[str, str]]:
     snippets = snippet_pattern.findall(html)
     urls = url_pattern.findall(html)
 
-    for i, title in enumerate(titles[:10]):
+    for i, title in enumerate(titles[:WEB_SEARCH_MAX_RESULTS]):
         results.append({
             "title": _clean_html(title),
             "url": _clean_html(urls[i]) if i < len(urls) else "",

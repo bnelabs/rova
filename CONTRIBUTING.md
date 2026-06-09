@@ -111,14 +111,16 @@ Textual workers use `@work(exclusive=True)`. The `finally` block is the right pl
 
 1. Fork the repo and create a feature branch
 2. Make your changes
-3. Run `ruff check rova/ tests/ && mypy rova/ && python -m pytest tests/ -v`
-4. Push and open a PR against `main`
-5. CI will run the same checks automatically
+3. Add an entry to `CHANGELOG.md` under `[Unreleased]` in the appropriate section
+4. Run `ruff check rova/ tests/ && mypy rova/ && python -m pytest tests/ -v --cov=rova`
+5. Push and open a PR against `main`
+6. CI will run the same checks automatically
 
 ## Release Process (Maintainers)
 
 ```sh
 # Update version in pyproject.toml
+# Move [Unreleased] entries to a new version section in CHANGELOG.md
 # Commit and tag
 git tag v0.3.0
 git push --tags

@@ -69,6 +69,9 @@ def build_parser() -> argparse.ArgumentParser:
         help="Ask for JSON object responses",
     )
     parser.add_argument(
+        "--model", default=None, help="Model name to use for chat requests",
+    )
+    parser.add_argument(
         "--version", action="version", version=f"rova {__version__}"
     )
     parser.add_argument(
@@ -154,6 +157,7 @@ def main(argv: list[str] | None = None) -> int:
         json_mode=args.json_mode,
         auto_compact=state_overrides.get("auto_compact", True),
         theme=state_overrides.get("theme", "rova"),
+        model=args.model or state_overrides.get("model", "gemma-4-12b-it"),
         skills_dir=skills_dir,
     )
 

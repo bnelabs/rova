@@ -9,7 +9,7 @@ COMMAND_DEFS: list[tuple[str, str, str, str]] = [
     # Chat
     ("Chat", "/state", "", "Show active settings (profile, rag, quality, tokens)"),
     ("Chat", "/tokens", "", "Show estimated context usage"),
-    ("Chat", "/model", "", "Show active model and context window capacity"),
+    ("Chat", "/model", "[name]", "Show current model, list available, or switch models"),
     ("Chat", "/history", "", "Show last 12 messages in compact form"),
     ("Chat", "/clear", "", "Clear all conversation history"),
     ("Chat", "/compact", "", "Summarize conversation history and continue"),

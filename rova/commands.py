@@ -1,10 +1,17 @@
-"""Slash-command handling for interactive chat."""
+"""Slash-command handling for interactive chat.
+
+Commands are dispatched via a dictionary mapping command name to handler
+function (``COMMAND_DISPATCH``).  Each handler receives the parsed args list
+plus the shared context objects and returns a result string.
+"""
 
 from __future__ import annotations
 
 import datetime
+import difflib
 import json
 import shlex
+from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Any
 
@@ -22,7 +29,6 @@ from rova.sessions import (
 )
 from rova.skills import list_skills, read_skill
 from rova.state import (
-    DEFAULT_MODEL,
     VALID_PROFILES,
     VALID_QUALITIES,
     ChatState,
@@ -55,10 +61,15 @@ SLASH_COMMANDS = [
     "/export",
     "/plugin",
     "/mcp",
+    "/copy",
     "/exit",
 ]
 
 VALID_THEMES = {"rova", "dracula", "solarized-dark", "high-contrast"}
+
+# Signature for command handler functions.
+# All handlers are async functions returning Awaitable[str].
+CommandHandler = Callable[..., Awaitable[str]]
 
 
 def _parse_bool(value: str | None) -> bool | None:
@@ -71,6 +82,12 @@ def _parse_bool(value: str | None) -> bool | None:
     if v in {"off", "false", "0", "no"}:
         return False
     return None
+
+
+def _suggest_command(typed: str) -> str | None:
+    """Return the closest matching command for *typed*, or None."""
+    candidates = difflib.get_close_matches(typed, SLASH_COMMANDS, n=1, cutoff=0.6)
+    return candidates[0] if candidates else None
 
 
 def command_menu() -> str:
@@ -121,6 +138,439 @@ System
 """
 
 
+# ---------------------------------------------------------------------------
+# Per-command handler functions (extracted from the former if-elif chain)
+# ---------------------------------------------------------------------------
+
+
+async def _cmd_help(
+    args: list[str],
+    state: ChatState,
+    client: Any | None = None,
+    workspace_dir: Path | None = None,
+    http_client: httpx.AsyncClient | None = None,
+) -> str:
+    return command_menu()
+
+
+async def _cmd_state(
+    args: list[str],
+    state: ChatState,
+    client: Any | None = None,
+    workspace_dir: Path | None = None,
+    http_client: httpx.AsyncClient | None = None,
+) -> str:
+    return _format_state(state)
+
+
+async def _cmd_tokens(
+    args: list[str],
+    state: ChatState,
+    client: Any | None = None,
+    workspace_dir: Path | None = None,
+    http_client: httpx.AsyncClient | None = None,
+) -> str:
+    return _status_line(state)
+
+
+async def _cmd_model(
+    args: list[str],
+    state: ChatState,
+    client: Any | None = None,
+    workspace_dir: Path | None = None,
+    http_client: httpx.AsyncClient | None = None,
+) -> str:
+    # /model <name> — switch models
+    if args:
+        state.model = args[0]
+        save_config({"model": state.model})
+        return f"model={state.model} (saved persistently)"
+    # /model — show current model or list available
+    if client is not None:
+        try:
+            payload = await client.async_list_models(client=http_client)
+            models_data = payload.get("data") or payload.get("models") or []
+            model_ids = [m.get("id", "") for m in models_data if m.get("id")]
+            if model_ids:
+                current = f"current: {state.model}\n"
+                current += "available:\n  " + "\n  ".join(model_ids)
+                return current
+        except httpx.HTTPError:
+            pass
+    return f"model={state.model} ctx={state.context_tokens}"
+
+
+async def _cmd_history(
+    args: list[str],
+    state: ChatState,
+    client: Any | None = None,
+    workspace_dir: Path | None = None,
+    http_client: httpx.AsyncClient | None = None,
+) -> str:
+    return _format_history(state)
+
+
+async def _cmd_clear(
+    args: list[str],
+    state: ChatState,
+    client: Any | None = None,
+    workspace_dir: Path | None = None,
+    http_client: httpx.AsyncClient | None = None,
+) -> str:
+    state.history.clear()
+    return "history cleared"
+
+
+async def _cmd_compact(
+    args: list[str],
+    state: ChatState,
+    client: Any | None = None,
+    workspace_dir: Path | None = None,
+    http_client: httpx.AsyncClient | None = None,
+) -> str:
+    if client is None:
+        return "client unavailable"
+    before = token_usage(state).used_tokens
+    try:
+        result = await client.async_compact(state, client=http_client)
+    except httpx.HTTPError as exc:
+        return f"compact failed: {exc}"
+    after = token_usage(state).used_tokens
+    return f"compacted {before}→{after} tokens\n{result.content}"
+
+
+async def _cmd_profile(
+    args: list[str],
+    state: ChatState,
+    client: Any | None = None,
+    workspace_dir: Path | None = None,
+    http_client: httpx.AsyncClient | None = None,
+) -> str:
+    if not args:
+        state.profile = None
+        return "profile=auto"
+    profile = args[0]
+    if profile not in VALID_PROFILES:
+        suggestion = difflib.get_close_matches(profile, sorted(VALID_PROFILES), n=1, cutoff=0.5)
+        hint = f" — did you mean {suggestion[0]}?" if suggestion else ""
+        return f"unknown profile: {profile} (valid: {', '.join(sorted(VALID_PROFILES))}){hint}"
+    state.profile = profile
+    return f"profile={profile}"
+
+
+async def _cmd_rag(
+    args: list[str],
+    state: ChatState,
+    client: Any | None = None,
+    workspace_dir: Path | None = None,
+    http_client: httpx.AsyncClient | None = None,
+) -> str:
+    return await _handle_rag_command(args, state, client, http_client=http_client)
+
+
+async def _cmd_quality(
+    args: list[str],
+    state: ChatState,
+    client: Any | None = None,
+    workspace_dir: Path | None = None,
+    http_client: httpx.AsyncClient | None = None,
+) -> str:
+    if not args:
+        state.quality = None
+        return "quality=auto"
+    quality = args[0]
+    if quality not in VALID_QUALITIES:
+        suggestion = difflib.get_close_matches(quality, sorted(VALID_QUALITIES), n=1, cutoff=0.5)
+        hint = f" — did you mean {suggestion[0]}?" if suggestion else ""
+        return f"unknown quality: {quality} (valid: {', '.join(sorted(VALID_QUALITIES))}){hint}"
+    state.quality = quality
+    return f"quality={quality}"
+
+
+async def _cmd_json(
+    args: list[str],
+    state: ChatState,
+    client: Any | None = None,
+    workspace_dir: Path | None = None,
+    http_client: httpx.AsyncClient | None = None,
+) -> str:
+    if not args:
+        state.json_mode = not state.json_mode
+    else:
+        parsed = _parse_bool(args[0])
+        state.json_mode = parsed if parsed is not None else state.json_mode
+    return f"json={state.json_mode}"
+
+
+async def _cmd_max(
+    args: list[str],
+    state: ChatState,
+    client: Any | None = None,
+    workspace_dir: Path | None = None,
+    http_client: httpx.AsyncClient | None = None,
+) -> str:
+    if not args:
+        state.max_tokens = None
+        return "max_tokens=auto"
+    try:
+        state.max_tokens = int(args[0])
+    except ValueError:
+        return "usage: /max <tokens>"
+    return f"max_tokens={state.max_tokens}"
+
+
+async def _cmd_health(
+    args: list[str],
+    state: ChatState,
+    client: Any | None = None,
+    workspace_dir: Path | None = None,
+    http_client: httpx.AsyncClient | None = None,
+) -> str:
+    if client is None:
+        return "client unavailable"
+    try:
+        health_data = await client.async_health(client=http_client)
+        return json.dumps(health_data, indent=2, sort_keys=True)
+    except httpx.HTTPError as exc:
+        return f"health check failed: {exc}"
+
+
+async def _cmd_profiles(
+    args: list[str],
+    state: ChatState,
+    client: Any | None = None,
+    workspace_dir: Path | None = None,
+    http_client: httpx.AsyncClient | None = None,
+) -> str:
+    if client is None:
+        return "client unavailable"
+    try:
+        payload = await client.async_profiles(client=http_client)
+        return "\n".join(sorted((payload.get("profiles") or {}).keys()))
+    except httpx.HTTPError as exc:
+        return f"profiles fetch failed: {exc}"
+
+
+async def _cmd_skills(
+    args: list[str],
+    state: ChatState,
+    client: Any | None = None,
+    workspace_dir: Path | None = None,
+    http_client: httpx.AsyncClient | None = None,
+) -> str:
+    return _format_skills(list_skills(state.skills_dir))
+
+
+async def _cmd_skill(
+    args: list[str],
+    state: ChatState,
+    client: Any | None = None,
+    workspace_dir: Path | None = None,
+    http_client: httpx.AsyncClient | None = None,
+) -> str:
+    return _handle_skill_command(args, state)
+
+
+async def _cmd_workspace(
+    args: list[str],
+    state: ChatState,
+    client: Any | None = None,
+    workspace_dir: Path | None = None,
+    http_client: httpx.AsyncClient | None = None,
+) -> str:
+    if workspace_dir is None:
+        return "workspace not configured"
+    return _format_workspace(workspace_dir)
+
+
+async def _cmd_theme(
+    args: list[str],
+    state: ChatState,
+    client: Any | None = None,
+    workspace_dir: Path | None = None,
+    http_client: httpx.AsyncClient | None = None,
+) -> str:
+    if not args:
+        return f"theme={state.theme} (valid: {', '.join(sorted(VALID_THEMES))})"
+    theme = args[0]
+    if theme not in VALID_THEMES:
+        suggestion = _suggest_command(f"/theme {theme}") or _suggest_command(theme)
+        hint = f" — did you mean {suggestion}?" if suggestion else ""
+        return f"unknown theme: {theme} (valid: {', '.join(sorted(VALID_THEMES))}){hint}"
+    state.theme = theme
+    save_config({"theme": theme})
+    return f"theme={theme} (saved persistently)"
+
+
+async def _cmd_autocompact(
+    args: list[str],
+    state: ChatState,
+    client: Any | None = None,
+    workspace_dir: Path | None = None,
+    http_client: httpx.AsyncClient | None = None,
+) -> str:
+    if not args:
+        state.auto_compact = not state.auto_compact
+    else:
+        parsed = _parse_bool(args[0])
+        state.auto_compact = parsed if parsed is not None else state.auto_compact
+    save_config({"auto_compact": state.auto_compact})
+    return f"auto_compact={state.auto_compact} (saved persistently)"
+
+
+async def _cmd_preview(
+    args: list[str],
+    state: ChatState,
+    client: Any | None = None,
+    workspace_dir: Path | None = None,
+    http_client: httpx.AsyncClient | None = None,
+) -> str:
+    if workspace_dir is None:
+        return "workspace not configured"
+    if not args:
+        return "usage: /preview <filename>"
+    file_path = workspace_dir / args[0]
+    if not file_path.exists():
+        return f"file not found: {args[0]}"
+    try:
+        content = file_path.read_text(encoding="utf-8", errors="replace")
+        return f"--- {args[0]} ---\n{content[:2000]}"
+    except Exception as exc:
+        return f"error reading {args[0]}: {exc}"
+
+
+async def _cmd_session(
+    args: list[str],
+    state: ChatState,
+    client: Any | None = None,
+    workspace_dir: Path | None = None,
+    http_client: httpx.AsyncClient | None = None,
+) -> str:
+    return _handle_session_command(args, state)
+
+
+async def _cmd_export(
+    args: list[str],
+    state: ChatState,
+    client: Any | None = None,
+    workspace_dir: Path | None = None,
+    http_client: httpx.AsyncClient | None = None,
+) -> str:
+    return _handle_export_command(args, state, workspace_dir)
+
+
+async def _cmd_plugin(
+    args: list[str],
+    state: ChatState,
+    client: Any | None = None,
+    workspace_dir: Path | None = None,
+    http_client: httpx.AsyncClient | None = None,
+) -> str:
+    return _handle_plugin_command(args)
+
+
+async def _cmd_mcp(
+    args: list[str],
+    state: ChatState,
+    client: Any | None = None,
+    workspace_dir: Path | None = None,
+    http_client: httpx.AsyncClient | None = None,
+) -> str:
+    return _handle_mcp_command(args)
+
+
+async def _cmd_exit(
+    args: list[str],
+    state: ChatState,
+    client: Any | None = None,
+    workspace_dir: Path | None = None,
+    http_client: httpx.AsyncClient | None = None,
+) -> str:
+    return ""
+
+
+async def _cmd_copy(
+    args: list[str],
+    state: ChatState,
+    client: Any | None = None,
+    workspace_dir: Path | None = None,
+    http_client: httpx.AsyncClient | None = None,
+) -> str:
+    """Copy the last assistant message to the system clipboard."""
+    # Find the last assistant message in history
+    last_content = ""
+    for msg in reversed(state.history):
+        if msg.get("role") == "assistant":
+            last_content = msg.get("content", "")
+            break
+
+    if not last_content:
+        return "nothing to copy — no assistant message found"
+
+    success = _copy_to_clipboard(last_content)
+    if success:
+        return f"copied {len(last_content)} chars to clipboard"
+    return "clipboard unavailable (install xclip or wl-copy on Linux)"
+
+
+def _copy_to_clipboard(text: str) -> bool:
+    """Copy *text* to the system clipboard. Returns True on success."""
+    import shutil as _shutil
+    import subprocess as _sp
+
+    # Try platform-specific clipboard tools
+    for tool_cmd in [
+        ["xclip", "-selection", "clipboard"],
+        ["wl-copy"],
+        ["pbcopy"],
+        ["clip"],
+    ]:
+        tool = _shutil.which(tool_cmd[0])
+        if tool:
+            try:
+                _sp.run([tool, *tool_cmd[1:]], input=text, text=True, timeout=5, check=True)
+                return True
+            except Exception:
+                pass
+    return False
+
+
+# -- Command dispatch table -----------------------------------------------
+
+COMMAND_DISPATCH: dict[str, CommandHandler] = {
+    "/": _cmd_help,
+    "/help": _cmd_help,
+    "/state": _cmd_state,
+    "/tokens": _cmd_tokens,
+    "/model": _cmd_model,
+    "/history": _cmd_history,
+    "/clear": _cmd_clear,
+    "/compact": _cmd_compact,
+    "/profile": _cmd_profile,
+    "/rag": _cmd_rag,
+    "/quality": _cmd_quality,
+    "/json": _cmd_json,
+    "/max": _cmd_max,
+    "/health": _cmd_health,
+    "/profiles": _cmd_profiles,
+    "/skills": _cmd_skills,
+    "/skill": _cmd_skill,
+    "/workspace": _cmd_workspace,
+    "/theme": _cmd_theme,
+    "/autocompact": _cmd_autocompact,
+    "/preview": _cmd_preview,
+    "/session": _cmd_session,
+    "/export": _cmd_export,
+    "/plugin": _cmd_plugin,
+    "/mcp": _cmd_mcp,
+    "/copy": _cmd_copy,
+    "/exit": _cmd_exit,
+}
+
+
+# -- Main entry point -----------------------------------------------------
+
+
 async def handle_slash_command(
     line: str,
     state: ChatState,
@@ -130,7 +580,8 @@ async def handle_slash_command(
 ) -> str:
     """Parse and execute a slash command. Returns output text to display.
 
-    Async so commands calling the router API do not block the TUI.
+    Dispatches via ``COMMAND_DISPATCH`` — each handler is an async function
+    so commands that call the router API do not block the TUI.
     """
     parts = shlex.split(line)
     if not parts:
@@ -138,130 +589,14 @@ async def handle_slash_command(
     command = parts[0]
     args = parts[1:]
 
-    if command in {"/", "/help"}:
-        return command_menu()
-    if command == "/state":
-        return _format_state(state)
-    if command == "/tokens":
-        return _status_line(state)
-    if command == "/model":
-        return f"model={DEFAULT_MODEL} ctx={state.context_tokens}"
-    if command == "/history":
-        return _format_history(state)
-    if command == "/clear":
-        state.history.clear()
-        return "history cleared"
-    if command == "/compact":
-        if client is None:
-            return "client unavailable"
-        before = token_usage(state).used_tokens
-        try:
-            result = await client.async_compact(state, client=http_client)
-        except httpx.HTTPError as exc:
-            return f"compact failed: {exc}"
-        after = token_usage(state).used_tokens
-        return f"compacted {before}→{after} tokens\n{result.content}"
-    if command == "/profile":
-        if not args:
-            state.profile = None
-            return "profile=auto"
-        profile = args[0]
-        if profile not in VALID_PROFILES:
-            return f"unknown profile: {profile}"
-        state.profile = profile
-        return f"profile={profile}"
-    if command == "/rag":
-        return await _handle_rag_command(args, state, client, http_client=http_client)
-    if command == "/quality":
-        if not args:
-            state.quality = None
-            return "quality=auto"
-        quality = args[0]
-        if quality not in VALID_QUALITIES:
-            return f"unknown quality: {quality}"
-        state.quality = quality
-        return f"quality={quality}"
-    if command == "/json":
-        if not args:
-            state.json_mode = not state.json_mode
-        else:
-            parsed = _parse_bool(args[0])
-            state.json_mode = parsed if parsed is not None else state.json_mode
-        return f"json={state.json_mode}"
-    if command == "/max":
-        if not args:
-            state.max_tokens = None
-            return "max_tokens=auto"
-        try:
-            state.max_tokens = int(args[0])
-        except ValueError:
-            return "usage: /max <tokens>"
-        return f"max_tokens={state.max_tokens}"
-    if command == "/health":
-        if client is None:
-            return "client unavailable"
-        try:
-            health_data = await client.async_health(client=http_client)
-            return json.dumps(health_data, indent=2, sort_keys=True)
-        except httpx.HTTPError as exc:
-            return f"health check failed: {exc}"
-    if command == "/profiles":
-        if client is None:
-            return "client unavailable"
-        try:
-            payload = await client.async_profiles(client=http_client)
-            return "\n".join(sorted((payload.get("profiles") or {}).keys()))
-        except httpx.HTTPError as exc:
-            return f"profiles fetch failed: {exc}"
-    if command == "/skills":
-        return _format_skills(list_skills(state.skills_dir))
-    if command == "/skill":
-        return _handle_skill_command(args, state)
-    if command == "/exit":
-        return ""
-    if command == "/workspace":
-        if workspace_dir is None:
-            return "workspace not configured"
-        return _format_workspace(workspace_dir)
-    if command == "/theme":
-        if not args:
-            return f"theme={state.theme} (valid: {', '.join(sorted(VALID_THEMES))})"
-        theme = args[0]
-        if theme not in VALID_THEMES:
-            return f"unknown theme: {theme} (valid: {', '.join(sorted(VALID_THEMES))})"
-        state.theme = theme
-        save_config({"theme": theme})
-        return f"theme={theme} (saved persistently)"
-    if command == "/autocompact":
-        if not args:
-            state.auto_compact = not state.auto_compact
-        else:
-            parsed = _parse_bool(args[0])
-            state.auto_compact = parsed if parsed is not None else state.auto_compact
-        save_config({"auto_compact": state.auto_compact})
-        return f"auto_compact={state.auto_compact} (saved persistently)"
-    if command == "/preview":
-        if workspace_dir is None:
-            return "workspace not configured"
-        if not args:
-            return "usage: /preview <filename>"
-        file_path = workspace_dir / args[0]
-        if not file_path.exists():
-            return f"file not found: {args[0]}"
-        try:
-            content = file_path.read_text(encoding="utf-8", errors="replace")
-            return f"--- {args[0]} ---\n{content[:2000]}"
-        except Exception as exc:
-            return f"error reading {args[0]}: {exc}"
-    if command == "/session":
-        return _handle_session_command(args, state)
-    if command == "/export":
-        return _handle_export_command(args, state, workspace_dir)
-    if command == "/plugin":
-        return _handle_plugin_command(args)
-    if command == "/mcp":
-        return _handle_mcp_command(args)
-    return f"unknown command: {command}"
+    handler = COMMAND_DISPATCH.get(command)
+    if handler is None:
+        suggestion = _suggest_command(command)
+        if suggestion and suggestion != command:
+            return f"unknown command: {command} — did you mean {suggestion}?"
+        return f"unknown command: {command}"
+
+    return await handler(args, state, client, workspace_dir, http_client)
 
 
 async def _handle_rag_command(
@@ -343,7 +678,9 @@ def _handle_skill_command(args: list[str], state: ChatState) -> str:
             return "usage: /skill use <name> [key=value ...]"
         name = args[1]
         if name not in list_skills(state.skills_dir):
-            return f"unknown skill: {name}"
+            suggestion = difflib.get_close_matches(name, list_skills(state.skills_dir), n=1, cutoff=0.5)
+            hint = f" — did you mean {suggestion[0]}?" if suggestion else ""
+            return f"unknown skill: {name}{hint}"
         if name not in state.active_skills:
             state.active_skills.append(name)
         # Parse key=value parameters from remaining args
@@ -371,8 +708,13 @@ def _handle_skill_command(args: list[str], state: ChatState) -> str:
     if action == "show":
         if len(args) < 2:
             return "usage: /skill show <name>"
-        text = read_skill(state.skills_dir, args[1])
-        return text if text else f"unknown skill: {args[1]}"
+        name = args[1]
+        text = read_skill(state.skills_dir, name)
+        if text:
+            return text
+        suggestion = difflib.get_close_matches(name, list_skills(state.skills_dir), n=1, cutoff=0.5)
+        hint = f" — did you mean {suggestion[0]}?" if suggestion else ""
+        return f"unknown skill: {name}{hint}"
     return "usage: /skill list|use|drop|clear|show"
 
 

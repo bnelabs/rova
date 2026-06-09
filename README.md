@@ -184,7 +184,16 @@ Generate presentations (pptx), documents (docx), and PDFs through the LLM. The m
 PYTHONPATH=. .venv/bin/python -m pytest tests/ -v
 ```
 
-146 tests covering commands, tools, state, skills, client, integration, and the command palette.
+146+ tests covering commands, tools, state, skills, client, integration, TUI components, and the command palette.
+
+## Docker
+
+```sh
+docker build -t rova .
+docker run -it --rm rova --version
+```
+
+Use `docker-compose.yml` for a quick-start stack with llama-router.
 
 ## Documentation
 
@@ -192,6 +201,7 @@ PYTHONPATH=. .venv/bin/python -m pytest tests/ -v
 - [Contributing](CONTRIBUTING.md) — dev setup, testing, linting, PR process
 - [Custom Tools](docs/TOOLS.md) — how to add new tools with JSON Schema + handler functions
 - [Skills](docs/SKILLS.md) — creating prompt templates with `{param}` substitution
+- [Changelog](CHANGELOG.md) — version history and release notes
 
 ## License
 

@@ -31,6 +31,7 @@ from pathlib import Path
 from typing import Any
 
 from rova.config import CONFIG_DIR
+from rova.errors import PluginError
 
 DEFAULT_PLUGINS_DIR = CONFIG_DIR / "plugins"
 
@@ -146,7 +147,7 @@ class PluginRegistry:
         # Use a unique module name to avoid collisions on reload
         spec = importlib.util.spec_from_file_location(module_name, path)
         if spec is None or spec.loader is None:
-            raise ImportError(f"Cannot load spec for {path}")
+            raise PluginError(f"Cannot load spec for {path}")
 
         module = importlib.util.module_from_spec(spec)
         sys.modules[module_name] = module

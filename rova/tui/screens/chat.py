@@ -15,8 +15,13 @@ from textual.screen import Screen
 from textual.widgets import Static
 
 from rova.client import RouterClient
-from rova.commands import handle_slash_command
-from rova.state import DEFAULT_MODEL, ChatState, token_usage
+from rova.commands import _copy_to_clipboard, handle_slash_command
+from rova.constants import (
+    AUTO_COMPACT_THRESHOLD_PCT,
+    MAX_TOOL_LOOP_ITERATIONS,
+    RECENT_CALL_TRACKING_SIZE,
+)
+from rova.state import ChatState, token_usage
 from rova.tools import execute_tool_call, get_tool_definitions
 from rova.tui.widgets.chat_view import ChatView
 from rova.tui.widgets.command_palette import COMMAND_DEFS, CommandPalette
@@ -41,6 +46,10 @@ def _is_exact_command(text: str) -> bool:
 
 class ChatScreen(Screen[None]):
     """The main chat screen with split layout: chat + file explorer/RAG pane."""
+
+    BINDINGS = [
+        ("ctrl+y", "copy_last_message", "Copy last response"),
+    ]
 
     def __init__(
         self,
@@ -69,6 +78,24 @@ class ChatScreen(Screen[None]):
 
     def on_mount(self) -> None:
         self._refresh_all()
+
+    def action_copy_last_message(self) -> None:
+        """Copy the last assistant message to the system clipboard."""
+        last_content = ""
+        for msg in reversed(self.state.history):
+            if msg.get("role") == "assistant":
+                last_content = msg.get("content", "")
+                break
+
+        if not last_content:
+            return
+
+        if _copy_to_clipboard(last_content):
+            chat_view = self.query_one("#chat-view", ChatView)
+            chat_view.add_system(f"[dim]Copied {len(last_content)} chars to clipboard[/dim]")
+        else:
+            chat_view = self.query_one("#chat-view", ChatView)
+            chat_view.add_system("[dim]Clipboard unavailable (install xclip or wl-copy)[/dim]")
 
     # -- Input handling ---------------------------------------------------
 
@@ -203,7 +230,7 @@ class ChatScreen(Screen[None]):
             chat_view.finish_streaming()
             status_bar.clear_busy()
 
-        max_iterations = 10
+        max_iterations = MAX_TOOL_LOOP_ITERATIONS
         iteration = 0
         had_tools = bool(result.tool_calls)
         recent_calls: list[tuple[str, str]] = []  # track (name, args) for cross-iteration dedup
@@ -237,7 +264,7 @@ class ChatScreen(Screen[None]):
                         "injecting reminder to try a different approach[/dim]"
                     )
                 recent_calls.append(call_key)
-                if len(recent_calls) > 6:
+                if len(recent_calls) > RECENT_CALL_TRACKING_SIZE:
                     recent_calls.pop(0)
 
                 status_bar.set_busy(f"Executing {name}...")
@@ -303,7 +330,7 @@ class ChatScreen(Screen[None]):
         # Auto-compaction check
         if self.state.auto_compact:
             usage = token_usage(self.state)
-            if usage.percent > 80:
+            if usage.percent > AUTO_COMPACT_THRESHOLD_PCT:
                 chat_view.add_system("[dim]⏳ Auto-compacting conversation (context > 80%)...[/dim]")
                 try:
                     before = usage.used_tokens
@@ -322,7 +349,7 @@ class ChatScreen(Screen[None]):
         usage = token_usage(self.state)
         pct = f"({usage.percent:.0f}%)" if usage.percent > 0 else ""
         return (
-            f"Rova  ·  {DEFAULT_MODEL}  ·  "
+            f"Rova  ·  {self.state.model}  ·  "
             f"{usage.used_tokens}/{usage.context_tokens} {pct}  ·  "
             f"{self.client.base_url}\n"
             f"profile={self.state.profile or 'auto'}  "

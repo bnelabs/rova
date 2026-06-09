@@ -30,6 +30,7 @@ class ChatState:
     json_mode: bool = False
     auto_compact: bool = True
     theme: str = "rova"
+    model: str = DEFAULT_MODEL
     skills_dir: Path = field(default_factory=lambda: Path("skills"))
     active_skills: list[str] = field(default_factory=list)
     skill_params: dict[str, dict[str, str]] = field(default_factory=dict)

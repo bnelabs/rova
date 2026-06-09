@@ -1,0 +1,28 @@
+# Rova + llama-router quick-start stack
+# Usage:
+#   docker-compose up -d llama-router  # start the router
+#   docker-compose run rova chat       # launch the TUI
+
+services:
+  rova:
+    build: .
+    stdin_open: true
+    tty: true
+    volumes:
+      - ~/.config/rova:/root/.config/rova
+      - rova-workspace:/root/rova-workspace
+    environment:
+      - ROVA_URL=http://llama-router:8010
+    depends_on:
+      - llama-router
+
+  llama-router:
+    image: ghcr.io/bnelabs/llama-router:latest
+    ports:
+      - "8010:8010"
+    volumes:
+      - ~/.config/llama-router:/root/.config/llama-router
+    command: ["--config", "/root/.config/llama-router/router.yaml"]
+
+volumes:
+  rova-workspace:

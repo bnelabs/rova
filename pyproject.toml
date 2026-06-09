@@ -19,6 +19,7 @@ dev = [
     "mypy>=1.15",
     "pytest>=8",
     "pytest-httpx>=0.35",
+    "pytest-cov>=6",
     "build>=1",
     "twine>=6",
 ]
@@ -66,6 +67,19 @@ no_implicit_optional = true
 warn_redundant_casts = true
 warn_unused_ignores = true
 exclude = ["tests/"]
+
+[tool.coverage.run]
+source = ["rova"]
+omit = ["tests/*"]
+
+[tool.coverage.report]
+exclude_also = [
+    "if TYPE_CHECKING:",
+    "if __name__ == .__main__.:",
+    "@(abc\\.)?abstractmethod",
+    "raise NotImplementedError",
+    "class .*\\(.*Protocol.*\\):",
+]
 
 [tool.setuptools.packages.find]
 include = ["rova*"]

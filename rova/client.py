@@ -9,6 +9,14 @@ from typing import Any
 
 import httpx
 
+from rova.constants import (
+    COMPACT_PROFILE,
+    COMPACT_PROMPT_TEMPLATE,
+    COMPACT_RECENT_FRACTION,
+    COMPACT_SUMMARY_TOKENS,
+    DEFAULT_HTTP_TIMEOUT,
+)
+from rova.errors import RouterAPIError
 from rova.state import (
     DEFAULT_MODEL,
     ChatResult,
@@ -70,7 +78,7 @@ def _build_payload(message: str, state: ChatState, tools: list[dict[str, Any]] |
     """Build the request payload for a chat completion."""
     messages = [*_skill_messages(state), *state.history, {"role": "user", "content": message}]
     payload: dict[str, Any] = {
-        "model": DEFAULT_MODEL,
+        "model": state.model if state.model else DEFAULT_MODEL,
         "messages": messages,
         "stream": False,
     }
@@ -112,49 +120,164 @@ class RouterClient:
     def __init__(
         self,
         base_url: str = "http://127.0.0.1:8010",
-        timeout: float = 300.0,
+        timeout: float = DEFAULT_HTTP_TIMEOUT,
     ) -> None:
         self.base_url = base_url.rstrip("/")
         self.timeout = timeout
 
+    # -- Internal helpers ---------------------------------------------------
+
+    def _url(self, path: str) -> str:
+        """Return a full URL for a path on the router API."""
+        return f"{self.base_url}{path}"
+
+    @staticmethod
+    def _check_response(response: httpx.Response) -> httpx.Response:
+        """Raise RouterAPIError on non-2xx, otherwise return the response."""
+        try:
+            response.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            raise RouterAPIError(
+                f"API error {exc.response.status_code}: {exc.response.reason_phrase}",
+                status_code=exc.response.status_code,
+                response_body=exc.response.text[:500],
+            ) from exc
+        return response
+
+    def _sync_request(
+        self,
+        method: str,
+        path: str,
+        *,
+        json: dict[str, Any] | None = None,
+        timeout: float | None = None,
+    ) -> httpx.Response:
+        """Issue a synchronous HTTP request to the router.
+
+        Args:
+            method: HTTP method (GET, POST, DELETE, …).
+            path: URL path (e.g. ``/health``, ``/v1/chat/completions``).
+            json: Optional JSON body.
+            timeout: Per-request timeout (falls back to ``self.timeout``).
+        """
+        req = getattr(httpx, method.lower())
+        response = req(
+            self._url(path),
+            json=json,
+            timeout=timeout if timeout is not None else self.timeout,
+        )
+        return self._check_response(response)
+
+    async def _async_request(
+        self,
+        method: str,
+        path: str,
+        *,
+        client: httpx.AsyncClient | None = None,
+        json: dict[str, Any] | None = None,
+        timeout: float | None = None,
+    ) -> httpx.Response:
+        """Issue an asynchronous HTTP request, reusing *client* when provided.
+
+        When *client* is ``None`` a transient ``AsyncClient`` is created.
+        """
+        t = timeout if timeout is not None else self.timeout
+        url = self._url(path)
+
+        # Only include ``json`` when it was explicitly provided (GET/DELETE
+        # methods of httpx don't accept a json kwarg).
+        kwargs: dict[str, Any] = {"timeout": t}
+        if json is not None:
+            kwargs["json"] = json
+
+        if client is not None:
+            req = getattr(client, method.lower())
+            response = await req(url, **kwargs)
+        else:
+            async with httpx.AsyncClient() as ac:
+                req = getattr(ac, method.lower())
+                response = await req(url, **kwargs)
+
+        return response
+
+    @staticmethod
+    def _make_empty_compact_result() -> ChatResult:
+        """Return a ChatResult for an empty conversation (nothing to compact)."""
+        return ChatResult(
+            content="No conversation history to compact.",
+            wall_seconds=0,
+            prompt_tps=None,
+            generation_tps=None,
+            raw={},
+        )
+
+    @staticmethod
+    def _compact_split(state: ChatState) -> tuple[list[dict[str, str]], list[dict[str, str]]]:
+        """Split history into *older* (to summarize) and *recent* (to keep)."""
+        keep_count = max(1, int(len(state.history) * COMPACT_RECENT_FRACTION))
+        split = max(1, len(state.history) - keep_count)
+        return state.history[:split], state.history[split:]
+
+    def _build_compact_prompt(self, messages: list[dict[str, str]]) -> str:
+        """Build a compact prompt from older messages."""
+        transcript = "\n\n".join(
+            f"{m['role']}: {m['content']}" for m in messages
+        )
+        return COMPACT_PROMPT_TEMPLATE.format(transcript=transcript)
+
+    def _make_compact_state(self, state: ChatState) -> ChatState:
+        """Create a ChatState suitable for compact requests."""
+        return ChatState(
+            profile=COMPACT_PROFILE,
+            quality="balanced",
+            max_tokens=COMPACT_SUMMARY_TOKENS,
+            skills_dir=state.skills_dir,
+            context_tokens=state.context_tokens,
+        )
+
     # -- Sync API (for CLI subcommands) -----------------------------------
 
     def health(self) -> dict[str, Any]:
-        response = httpx.get(f"{self.base_url}/health", timeout=10.0)
+        response = self._sync_request("GET", "/health", timeout=10.0)
         response.raise_for_status()
         return response.json()
 
     def profiles(self) -> dict[str, Any]:
-        response = httpx.get(f"{self.base_url}/profiles", timeout=10.0)
+        response = self._sync_request("GET", "/profiles", timeout=10.0)
+        response.raise_for_status()
+        return response.json()
+
+    def list_models(self) -> dict[str, Any]:
+        """List available models from the router."""
+        response = self._sync_request("GET", "/v1/models", timeout=10.0)
         response.raise_for_status()
         return response.json()
 
     def ingest(self, paths: list[str] | None = None, urls: list[str] | None = None) -> dict[str, Any]:
-        payload: dict[str, Any] = {"paths": paths or [], "urls": urls or []}
-        response = httpx.post(f"{self.base_url}/rag/ingest", json=payload, timeout=self.timeout)
+        response = self._sync_request(
+            "POST", "/rag/ingest",
+            json={"paths": paths or [], "urls": urls or []},
+        )
         response.raise_for_status()
         return response.json()
 
     def search(self, query: str, top_k: int = 5) -> dict[str, Any]:
-        response = httpx.post(
-            f"{self.base_url}/rag/search",
+        response = self._sync_request(
+            "POST", "/rag/search",
             json={"query": query, "top_k": top_k},
-            timeout=self.timeout,
         )
         response.raise_for_status()
         return response.json()
 
     def list_rag_documents(self) -> dict[str, Any]:
         """List all documents in the RAG index."""
-        response = httpx.get(f"{self.base_url}/rag/documents", timeout=10.0)
+        response = self._sync_request("GET", "/rag/documents", timeout=10.0)
         response.raise_for_status()
         return response.json()
 
     def delete_rag_document(self, doc_id: str) -> dict[str, Any]:
         """Delete a document from the RAG index by ID."""
-        response = httpx.delete(
-            f"{self.base_url}/rag/documents/{doc_id}", timeout=10.0
-        )
+        response = self._sync_request("DELETE", f"/rag/documents/{doc_id}", timeout=10.0)
         response.raise_for_status()
         return response.json()
 
@@ -167,13 +290,7 @@ class RouterClient:
         """Send a message synchronously and return the result."""
         payload = _build_payload(message, state, tools)
         started = time.perf_counter()
-        response = httpx.post(
-            f"{self.base_url}/v1/chat/completions",
-            json=payload,
-            timeout=self.timeout,
-        )
-        response.raise_for_status()
-        raw = response.json()
+        raw = self._sync_request("POST", "/v1/chat/completions", json=payload).json()
         result = _parse_response(raw, started)
         state.history.extend([
             {"role": "user", "content": message},
@@ -182,42 +299,14 @@ class RouterClient:
         return result
 
     def compact(self, state: ChatState) -> ChatResult:
-        """Summarize conversation history and replace it with the summary.
-
-        Summarizes the older ~70% of messages while retaining the most recent
-        ~30% as raw context so the LLM doesn't lose recent tool calls/results.
-        """
+        """Summarize conversation history and replace it with the summary."""
         if not state.history:
-            return ChatResult(
-                content="No conversation history to compact.",
-                wall_seconds=0,
-                prompt_tps=None,
-                generation_tps=None,
-                raw={},
-            )
-        # Keep the most recent ~30% of messages; summarize the older ~70%
-        split = max(1, len(state.history) - max(4, len(state.history) // 3))
-        older = state.history[:split]
-        recent = state.history[split:]
+            return self._make_empty_compact_result()
 
-        transcript = "\n\n".join(
-            f"{message['role']}: {message['content']}" for message in older
-        )
-        prompt = (
-            "Compact the conversation below into a durable summary for continuing the same chat. "
-            "Preserve user goals, decisions, constraints, important facts, open questions, file paths, "
-            "commands, and unresolved work. Remove filler and repeated wording. Return only the summary.\n\n"
-            f"{transcript}"
-        )
-        compact_state = ChatState(
-            profile="complex_reasoning",
-            quality="balanced",
-            max_tokens=2048,
-            skills_dir=state.skills_dir,
-            context_tokens=state.context_tokens,
-        )
-        result = self.send(prompt, compact_state)
-        # Replace history: summary first, then retain recent raw messages
+        older, recent = self._compact_split(state)
+        prompt = self._build_compact_prompt(older)
+        result = self.send(prompt, self._make_compact_state(state))
+
         state.history = [
             {"role": "system", "content": f"Conversation summary so far:\n{result.content}"},
             *recent,
@@ -236,21 +325,9 @@ class RouterClient:
         """Send a message asynchronously using an optional shared AsyncClient."""
         payload = _build_payload(message, state, tools)
         started = time.perf_counter()
-
-        if client is not None:
-            response = await client.post(
-                f"{self.base_url}/v1/chat/completions",
-                json=payload,
-                timeout=self.timeout,
-            )
-        else:
-            async with httpx.AsyncClient() as ac:
-                response = await ac.post(
-                    f"{self.base_url}/v1/chat/completions",
-                    json=payload,
-                    timeout=self.timeout,
-                )
-
+        response = await self._async_request(
+            "POST", "/v1/chat/completions", client=client, json=payload
+        )
         response.raise_for_status()
         raw = response.json()
         result = _parse_response(raw, started)
@@ -272,16 +349,13 @@ class RouterClient:
     ) -> ChatResult:
         """Continue conversation after tool results without injecting a user message.
 
-        Sends the current history as-is (user, assistant with tool_calls, tool results)
-        so the model continues directly. Records only the assistant response.
-
         When *on_chunk* is provided the request uses SSE streaming and the callback
         receives content deltas as they arrive. Otherwise a standard (non-streaming)
         request is used.
         """
         messages = [*_skill_messages(state), *state.history]
         payload: dict[str, Any] = {
-            "model": DEFAULT_MODEL,
+            "model": state.model if state.model else DEFAULT_MODEL,
             "messages": messages,
             "stream": on_chunk is not None,
         }
@@ -300,24 +374,13 @@ class RouterClient:
             result = await self._stream_sse(payload, client, on_chunk)
         else:
             started = time.perf_counter()
-            if client is not None:
-                response = await client.post(
-                    f"{self.base_url}/v1/chat/completions",
-                    json=payload,
-                    timeout=self.timeout,
-                )
-            else:
-                async with httpx.AsyncClient() as ac:
-                    response = await ac.post(
-                        f"{self.base_url}/v1/chat/completions",
-                        json=payload,
-                        timeout=self.timeout,
-                    )
+            response = await self._async_request(
+                "POST", "/v1/chat/completions", client=client, json=payload
+            )
             response.raise_for_status()
             raw = response.json()
             result = _parse_response(raw, started)
 
-        # Record only assistant (no user message was sent)
         assistant_msg: dict[str, Any] = {"role": "assistant", "content": result.content}
         if result.tool_calls:
             assistant_msg["tool_calls"] = result.tool_calls
@@ -342,7 +405,7 @@ class RouterClient:
             nonlocal content_parts, tool_call_deltas
             async with http.stream(
                 "POST",
-                f"{self.base_url}/v1/chat/completions",
+                self._url("/v1/chat/completions"),
                 json=payload,
                 timeout=self.timeout,
             ) as response:
@@ -364,13 +427,11 @@ class RouterClient:
                         continue
                     delta = choices[0].get("delta") or {}
 
-                    # Accumulate content deltas
                     content_delta = delta.get("content", "")
                     if isinstance(content_delta, str) and content_delta:
                         content_parts.append(content_delta)
                         on_chunk(content_delta)
 
-                    # Accumulate tool_call deltas by index
                     tc_deltas = delta.get("tool_calls") or []
                     for tc in tc_deltas:
                         idx = tc.get("index", 0)
@@ -417,27 +478,15 @@ class RouterClient:
         client: httpx.AsyncClient | None = None,
         on_chunk: Callable[[str], None] | None = None,
     ) -> ChatResult:
-        """Send a message with streaming enabled and parse SSE chunks.
+        """Send a message with SSE streaming enabled.
 
-        Uses Server-Sent Events to receive tokens incrementally from the backend.
         Content and tool_calls are accumulated from deltas across chunks.
-
-        Args:
-            message: The user message to send.
-            state: Current chat state (history, settings).
-            tools: Optional tool definitions for tool_choice auto mode.
-            client: Shared AsyncClient for connection pooling.
-            on_chunk: Optional callback receiving content deltas as they arrive.
-
-        Returns:
-            ChatResult with accumulated content, tool_calls, and timing.
         """
         payload = _build_payload(message, state, tools)
         payload["stream"] = True
 
         result = await self._stream_sse(payload, client, on_chunk or (lambda _: None))
 
-        # Record to history (matching async_send behavior with tool_calls)
         assistant_msg: dict[str, Any] = {"role": "assistant", "content": result.content}
         if result.tool_calls:
             assistant_msg["tool_calls"] = result.tool_calls
@@ -448,20 +497,17 @@ class RouterClient:
         return result
 
     async def async_health(self, client: httpx.AsyncClient | None = None) -> dict[str, Any]:
-        if client is not None:
-            response = await client.get(f"{self.base_url}/health", timeout=10.0)
-        else:
-            async with httpx.AsyncClient() as ac:
-                response = await ac.get(f"{self.base_url}/health", timeout=10.0)
+        response = await self._async_request("GET", "/health", client=client, timeout=10.0)
         response.raise_for_status()
         return response.json()
 
     async def async_profiles(self, client: httpx.AsyncClient | None = None) -> dict[str, Any]:
-        if client is not None:
-            response = await client.get(f"{self.base_url}/profiles", timeout=10.0)
-        else:
-            async with httpx.AsyncClient() as ac:
-                response = await ac.get(f"{self.base_url}/profiles", timeout=10.0)
+        response = await self._async_request("GET", "/profiles", client=client, timeout=10.0)
+        response.raise_for_status()
+        return response.json()
+
+    async def async_list_models(self, client: httpx.AsyncClient | None = None) -> dict[str, Any]:
+        response = await self._async_request("GET", "/v1/models", client=client, timeout=10.0)
         response.raise_for_status()
         return response.json()
 
@@ -471,61 +517,38 @@ class RouterClient:
         urls: list[str] | None = None,
         client: httpx.AsyncClient | None = None,
     ) -> dict[str, Any]:
-        payload: dict[str, Any] = {"paths": paths or [], "urls": urls or []}
-        if client is not None:
-            response = await client.post(
-                f"{self.base_url}/rag/ingest", json=payload, timeout=self.timeout
-            )
-        else:
-            async with httpx.AsyncClient() as ac:
-                response = await ac.post(
-                    f"{self.base_url}/rag/ingest", json=payload, timeout=self.timeout
-                )
+        response = await self._async_request(
+            "POST", "/rag/ingest",
+            client=client,
+            json={"paths": paths or [], "urls": urls or []},
+        )
         response.raise_for_status()
         return response.json()
 
     async def async_search(
         self, query: str, top_k: int = 5, client: httpx.AsyncClient | None = None
     ) -> dict[str, Any]:
-        if client is not None:
-            response = await client.post(
-                f"{self.base_url}/rag/search",
-                json={"query": query, "top_k": top_k},
-                timeout=self.timeout,
-            )
-        else:
-            async with httpx.AsyncClient() as ac:
-                response = await ac.post(
-                    f"{self.base_url}/rag/search",
-                    json={"query": query, "top_k": top_k},
-                    timeout=self.timeout,
-                )
+        response = await self._async_request(
+            "POST", "/rag/search",
+            client=client,
+            json={"query": query, "top_k": top_k},
+        )
         response.raise_for_status()
         return response.json()
 
     async def async_list_rag_documents(
         self, client: httpx.AsyncClient | None = None
     ) -> dict[str, Any]:
-        if client is not None:
-            response = await client.get(f"{self.base_url}/rag/documents", timeout=10.0)
-        else:
-            async with httpx.AsyncClient() as ac:
-                response = await ac.get(f"{self.base_url}/rag/documents", timeout=10.0)
+        response = await self._async_request("GET", "/rag/documents", client=client, timeout=10.0)
         response.raise_for_status()
         return response.json()
 
     async def async_delete_rag_document(
         self, doc_id: str, client: httpx.AsyncClient | None = None
     ) -> dict[str, Any]:
-        if client is not None:
-            response = await client.delete(
-                f"{self.base_url}/rag/documents/{doc_id}", timeout=10.0
-            )
-        else:
-            async with httpx.AsyncClient() as ac:
-                response = await ac.delete(
-                    f"{self.base_url}/rag/documents/{doc_id}", timeout=10.0
-                )
+        response = await self._async_request(
+            "DELETE", f"/rag/documents/{doc_id}", client=client, timeout=10.0
+        )
         response.raise_for_status()
         return response.json()
 
@@ -534,36 +557,12 @@ class RouterClient:
     ) -> ChatResult:
         """Compact conversation asynchronously (used by TUI)."""
         if not state.history:
-            return ChatResult(
-                content="No conversation history to compact.",
-                wall_seconds=0,
-                prompt_tps=None,
-                generation_tps=None,
-                raw={},
-            )
-        # Keep the most recent 30% of messages; summarize the older 70%
-        split = max(1, len(state.history) - max(4, len(state.history) // 3))
-        older = state.history[:split]
-        recent = state.history[split:]
+            return self._make_empty_compact_result()
 
-        transcript = "\n\n".join(
-            f"{m['role']}: {m['content']}" for m in older
-        )
-        prompt = (
-            "Compact the conversation below into a durable summary. "
-            "Preserve user goals, decisions, constraints, important facts, open questions, "
-            "file paths, commands, and unresolved work. Remove filler. Return only the summary.\n\n"
-            f"{transcript}"
-        )
-        compact_state = ChatState(
-            profile="complex_reasoning",
-            quality="balanced",
-            max_tokens=2048,
-            skills_dir=state.skills_dir,
-            context_tokens=state.context_tokens,
-        )
-        result = await self.async_send(prompt, compact_state, client=client)
-        # Replace history: summary first, then retain recent raw messages
+        older, recent = self._compact_split(state)
+        prompt = self._build_compact_prompt(older)
+        result = await self.async_send(prompt, self._make_compact_state(state), client=client)
+
         state.history = [
             {"role": "system", "content": f"Conversation summary so far:\n{result.content}"},
             *recent,
