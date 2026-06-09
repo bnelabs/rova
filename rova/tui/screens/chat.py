@@ -188,19 +188,23 @@ class ChatScreen(Screen[None]):
         tools = TOOL_DEFINITIONS if self.state.profile == "tool_agent" else None
 
         status_bar.set_busy("Streaming...")
+        chat_view.start_streaming()
         try:
             result = await self.client.async_send_streaming(
                 message, self.state, tools, self._http,
+                on_chunk=lambda token: chat_view.stream_chunk(token),
             )
         except Exception as exc:
             chat_view.add_error(f"Send failed: {exc}")
             self._refresh_all()
             return
         finally:
+            chat_view.finish_streaming()
             status_bar.clear_busy()
 
         max_iterations = 10
         iteration = 0
+        had_tools = bool(result.tool_calls)
         recent_calls: list[tuple[str, str]] = []  # track (name, args) for cross-iteration dedup
         while result.tool_calls and iteration < max_iterations:
             iteration += 1
@@ -243,11 +247,20 @@ class ChatScreen(Screen[None]):
                 return await asyncio.to_thread(execute_tool_call, tc, self.workspace)
 
             tool_results = await asyncio.gather(
-                *[_exec_one(tc) for tc, _name, _args_str in signatures]
+                *[_exec_one(tc) for tc, _name, _args_str in signatures],
+                return_exceptions=True,
             )
 
             # Phase 3: Process results and update history
             for (tc, name, args_str), tool_result_msg in zip(signatures, tool_results):
+                if isinstance(tool_result_msg, BaseException):
+                    chat_view.add_error(f"Tool {name} failed: {tool_result_msg}")
+                    tool_result_msg = {
+                        "role": "tool",
+                        "tool_call_id": tc.get("id", ""),
+                        "name": name,
+                        "content": f"error: {tool_result_msg}",
+                    }
                 call_key = (name, args_str)
                 # If this is a duplicate, append a warning to the tool result
                 if recent_calls.count(call_key) >= 2:
@@ -263,20 +276,28 @@ class ChatScreen(Screen[None]):
                 self.state.history.append(tool_result_msg)
 
             try:
-                status_bar.set_busy("Waiting for response...")
+                status_bar.set_busy("Streaming...")
+                chat_view.start_streaming()
                 result = await self.client.async_continue(
                     self.state,
                     tools,
                     self._http,
+                    on_chunk=lambda token: chat_view.stream_chunk(token),
                 )
             except Exception as exc:
-                status_bar.clear_busy()
                 chat_view.add_error(f"Tool loop error: {exc}")
                 self._refresh_all()
                 return
+            finally:
+                chat_view.finish_streaming()
+                status_bar.clear_busy()
 
         status_bar.clear_busy()
-        chat_view.add_assistant(result.content, result.wall_seconds)
+        # Show final response as markdown panel only when tools were involved
+        # (the first streaming response was just an intermediate message).
+        # When no tools were needed, the streamed content IS the final answer.
+        if had_tools:
+            chat_view.add_assistant(result.content, result.wall_seconds)
 
         # Auto-compaction check
         if self.state.auto_compact:

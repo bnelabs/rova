@@ -17,7 +17,7 @@ CONFIG_PATH = CONFIG_DIR / "config.json"
 DEFAULT_CONFIG: dict[str, Any] = {
     "theme": "rova",
     "workspace": str(Path.home() / "rova-workspace"),
-    "skills_dir": "skills",
+    "skills_dir": str(CONFIG_DIR / "skills"),
     "quality": None,
     "profile": None,
     "auto_compact": True,

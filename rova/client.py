@@ -266,17 +266,22 @@ class RouterClient:
         state: ChatState,
         tools: list[dict[str, Any]] | None = None,
         client: httpx.AsyncClient | None = None,
+        on_chunk: "Callable[[str], None] | None" = None,
     ) -> ChatResult:
         """Continue conversation after tool results without injecting a user message.
 
         Sends the current history as-is (user, assistant with tool_calls, tool results)
         so the model continues directly. Records only the assistant response.
+
+        When *on_chunk* is provided the request uses SSE streaming and the callback
+        receives content deltas as they arrive. Otherwise a standard (non-streaming)
+        request is used.
         """
         messages = [*_skill_messages(state), *state.history]
         payload: dict[str, Any] = {
             "model": DEFAULT_MODEL,
             "messages": messages,
-            "stream": False,
+            "stream": on_chunk is not None,
         }
         metadata = _metadata_from_state(state)
         if metadata:
@@ -289,30 +294,118 @@ class RouterClient:
             payload["tools"] = tools
             payload["tool_choice"] = "auto"
 
-        started = time.perf_counter()
-        if client is not None:
-            response = await client.post(
-                f"{self.base_url}/v1/chat/completions",
-                json=payload,
-                timeout=self.timeout,
-            )
+        if on_chunk is not None:
+            result = await self._stream_sse(payload, client, on_chunk)
         else:
-            async with httpx.AsyncClient() as ac:
-                response = await ac.post(
+            started = time.perf_counter()
+            if client is not None:
+                response = await client.post(
                     f"{self.base_url}/v1/chat/completions",
                     json=payload,
                     timeout=self.timeout,
                 )
+            else:
+                async with httpx.AsyncClient() as ac:
+                    response = await ac.post(
+                        f"{self.base_url}/v1/chat/completions",
+                        json=payload,
+                        timeout=self.timeout,
+                    )
+            response.raise_for_status()
+            raw = response.json()
+            result = _parse_response(raw, started)
 
-        response.raise_for_status()
-        raw = response.json()
-        result = _parse_response(raw, started)
         # Record only assistant (no user message was sent)
-        assistant_msg = {"role": "assistant", "content": result.content}
+        assistant_msg: dict[str, Any] = {"role": "assistant", "content": result.content}
         if result.tool_calls:
             assistant_msg["tool_calls"] = result.tool_calls
         state.history.append(assistant_msg)
         return result
+
+    # -- SSE streaming helpers -----------------------------------------------
+
+    async def _stream_sse(
+        self,
+        payload: dict[str, Any],
+        client: httpx.AsyncClient | None,
+        on_chunk: "Callable[[str], None]",
+    ) -> ChatResult:
+        """Shared SSE streaming core — used by async_send_streaming and async_continue."""
+        started = time.perf_counter()
+
+        content_parts: list[str] = []
+        tool_call_deltas: dict[int, dict[str, Any]] = {}
+
+        async def _read(http: httpx.AsyncClient) -> None:
+            nonlocal content_parts, tool_call_deltas
+            async with http.stream(
+                "POST",
+                f"{self.base_url}/v1/chat/completions",
+                json=payload,
+                timeout=self.timeout,
+            ) as response:
+                response.raise_for_status()
+                async for line in response.aiter_lines():
+                    if not line.startswith("data: "):
+                        continue
+                    data = line[6:]  # strip "data: " prefix
+                    if data == "[DONE]":
+                        break
+
+                    try:
+                        chunk = json.loads(data)
+                    except json.JSONDecodeError:
+                        continue
+
+                    choices = chunk.get("choices") or []
+                    if not choices:
+                        continue
+                    delta = choices[0].get("delta") or {}
+
+                    # Accumulate content deltas
+                    content_delta = delta.get("content", "")
+                    if isinstance(content_delta, str) and content_delta:
+                        content_parts.append(content_delta)
+                        on_chunk(content_delta)
+
+                    # Accumulate tool_call deltas by index
+                    tc_deltas = delta.get("tool_calls") or []
+                    for tc in tc_deltas:
+                        idx = tc.get("index", 0)
+                        if idx not in tool_call_deltas:
+                            tool_call_deltas[idx] = {
+                                "id": tc.get("id", ""),
+                                "type": "function",
+                                "function": {"name": "", "arguments": ""},
+                            }
+                        entry = tool_call_deltas[idx]
+                        if tc.get("id"):
+                            entry["id"] = tc["id"]
+                        func = tc.get("function") or {}
+                        if func.get("name"):
+                            entry["function"]["name"] += func["name"]
+                        if func.get("arguments"):
+                            entry["function"]["arguments"] += func["arguments"]
+
+        if client is not None:
+            await _read(client)
+        else:
+            async with httpx.AsyncClient() as ac:
+                await _read(ac)
+
+        content = "".join(content_parts)
+        tool_calls = [tool_call_deltas[i] for i in sorted(tool_call_deltas)]
+
+        raw: dict[str, Any] = {
+            "choices": [{
+                "message": {
+                    "content": content,
+                    "tool_calls": tool_calls if tool_calls else None,
+                }
+            }],
+            "timings": {},
+        }
+        return _parse_response(raw, started)
 
     async def async_send_streaming(
         self,
@@ -339,91 +432,8 @@ class RouterClient:
         """
         payload = _build_payload(message, state, tools)
         payload["stream"] = True
-        started = time.perf_counter()
 
-        async def _stream_body(http: httpx.AsyncClient) -> ChatResult:
-            content_parts: list[str] = []
-            tool_call_deltas: dict[int, dict[str, Any]] = {}  # index → accumulated delta
-            raw_choices: list[dict[str, Any]] = []
-
-            async with http.stream(
-                "POST",
-                f"{self.base_url}/v1/chat/completions",
-                json=payload,
-                timeout=self.timeout,
-            ) as response:
-                response.raise_for_status()
-                async for line in response.aiter_lines():
-                    if not line.startswith("data: "):
-                        continue
-                    data = line[6:]  # strip "data: " prefix
-                    if data == "[DONE]":
-                        break
-
-                    try:
-                        chunk = json.loads(data)
-                    except json.JSONDecodeError:
-                        continue
-
-                    choices = chunk.get("choices") or []
-                    if not choices:
-                        continue
-                    delta = choices[0].get("delta") or {}
-                    finish_reason = choices[0].get("finish_reason")
-
-                    # Accumulate content deltas
-                    content_delta = delta.get("content", "")
-                    if isinstance(content_delta, str) and content_delta:
-                        content_parts.append(content_delta)
-                        if on_chunk is not None:
-                            on_chunk(content_delta)
-
-                    # Accumulate tool_call deltas by index
-                    tc_deltas = delta.get("tool_calls") or []
-                    for tc in tc_deltas:
-                        idx = tc.get("index", 0)
-                        if idx not in tool_call_deltas:
-                            tool_call_deltas[idx] = {
-                                "id": tc.get("id", ""),
-                                "type": "function",
-                                "function": {
-                                    "name": "",
-                                    "arguments": "",
-                                },
-                            }
-                        entry = tool_call_deltas[idx]
-                        if tc.get("id"):
-                            entry["id"] = tc["id"]
-                        func = tc.get("function") or {}
-                        if func.get("name"):
-                            entry["function"]["name"] += func["name"]
-                        if func.get("arguments"):
-                            entry["function"]["arguments"] += func["arguments"]
-
-                    if finish_reason:
-                        raw_choices.append({"delta": delta, "finish_reason": finish_reason})
-
-            content = "".join(content_parts)
-            tool_calls = [tool_call_deltas[i] for i in sorted(tool_call_deltas)]
-
-            # Build a synthetic raw response compatible with _parse_response
-            raw: dict[str, Any] = {
-                "choices": [{
-                    "message": {
-                        "content": content,
-                        "tool_calls": tool_calls if tool_calls else None,
-                    }
-                }],
-                "timings": {},
-            }
-            result = _parse_response(raw, started)
-            return result
-
-        if client is not None:
-            result = await _stream_body(client)
-        else:
-            async with httpx.AsyncClient() as ac:
-                result = await _stream_body(ac)
+        result = await self._stream_sse(payload, client, on_chunk or (lambda _: None))
 
         # Record to history (matching async_send behavior with tool_calls)
         assistant_msg: dict[str, Any] = {"role": "assistant", "content": result.content}

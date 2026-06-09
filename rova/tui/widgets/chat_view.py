@@ -77,3 +77,29 @@ class ChatView(RichLog):
             )
         else:
             self.write(f"[bold cyan]📎 {source_tag}[/bold cyan]")
+
+    # -- Streaming support -------------------------------------------------
+
+    def start_streaming(self) -> None:
+        """Begin a streaming assistant response (line-buffered rendering)."""
+        self._streaming = True
+        self._stream_buffer = ""
+
+    def stream_chunk(self, text: str) -> None:
+        """Accumulate a content delta, flushing complete lines to the log."""
+        if not getattr(self, "_streaming", False):
+            self.start_streaming()
+        self._stream_buffer += text
+        while "\n" in self._stream_buffer:
+            line, self._stream_buffer = self._stream_buffer.split("\n", 1)
+            if line.strip():
+                self.write(line.strip())
+
+    def finish_streaming(self) -> None:
+        """Flush any remaining buffered text and end the streaming session."""
+        if not getattr(self, "_streaming", False):
+            return
+        if self._stream_buffer.strip():
+            self.write(self._stream_buffer.strip())
+        self._streaming = False
+        self._stream_buffer = ""
