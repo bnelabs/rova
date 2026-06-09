@@ -62,7 +62,9 @@ Screen {
 
 #chat-input {
     dock: bottom;
-    height: 3;
+    height: auto;
+    min-height: 3;
+    max-height: 10;
     margin: 0;
     border-top: solid #313244;
     background: #181825;
@@ -71,6 +73,26 @@ Screen {
 
 #chat-input:focus {
     border-top: solid #cba6f7;
+}
+
+/* TextArea inner text widget */
+TextArea {
+    background: #181825;
+    color: #cdd6f4;
+    border: none;
+    padding: 0 1;
+}
+
+TextArea:focus {
+    border: none;
+}
+
+TextArea > .text-area--cursor-line {
+    background: #1e1e2e;
+}
+
+TextArea > .text-area--selection {
+    background: #45475a;
 }
 
 #status-bar {

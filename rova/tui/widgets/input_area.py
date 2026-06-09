@@ -1,31 +1,42 @@
-"""Input area for chat messages with slash-command palette support."""
+"""Multi-line chat input with history, fuzzy autocomplete, and slash palette.
+
+Features:
+  - Enter to submit, Shift+Enter for newline
+  - Up/Down arrow key history navigation
+  - Fuzzy slash-command matching on Tab
+  - Slash detection posts SlashChanged messages for the command palette
+"""
 
 from __future__ import annotations
 
-from textual.widgets import Input
+from textual.widgets import TextArea
+from textual.binding import Binding
 from textual.message import Message
-from textual import events
 
 from rova.tui.widgets.command_palette import COMMAND_DEFS
 
 
-class ChatInput(Input):
-    """Input widget with slash-command detection and Tab autocomplete.
+class ChatInput(TextArea):
+    """Multi-line text input for the chat interface.
 
     Posts:
-      ChatSubmitted - when user presses Enter with non-empty text
-      SlashChanged  - when the value changes while starting with /
+      ChatSubmitted — when user presses Enter with non-empty text
+      SlashChanged  — when text changes while starting with /
     """
 
+    BINDINGS = [
+        Binding("enter", "submit", "Submit", show=False),
+    ]
+
     class ChatSubmitted(Message):
-        """Emitted when the user submits (Enter), carrying the trimmed text."""
+        """Emitted on Enter with the trimmed text."""
 
         def __init__(self, value: str) -> None:
             super().__init__()
             self.value = value
 
     class SlashChanged(Message):
-        """Emitted when the input value changes while starting with /."""
+        """Emitted when text changes while starting with /."""
 
         def __init__(self, value: str) -> None:
             super().__init__()
@@ -33,63 +44,155 @@ class ChatInput(Input):
 
     def __init__(self, **kwargs) -> None:
         super().__init__(
-            placeholder="Type a message or / for commands…",
+            text="",
+            show_line_numbers=False,
+            tab_behavior="focus",
             **kwargs,
         )
+        self._history: list[str] = []
+        self._history_index: int = -1
+        self._scratch: str = ""  # saved current text when navigating history
 
     # -- Submit ----------------------------------------------------------
 
     def action_submit(self) -> None:
-        """Intercept Textual's default submit to emit our custom message."""
-        value = self.value
+        """Enter key: submit the current text."""
+        value = self.text
         if value.strip():
+            self._history.append(value)
+            if len(self._history) > 200:
+                self._history.pop(0)
+            self._history_index = -1
+            self._scratch = ""
             self.post_message(self.ChatSubmitted(value))
         self.clear()
 
     # -- Slash detection -------------------------------------------------
 
-    def watch_value(self, value: str) -> None:
-        """Called by Textual whenever the input value changes."""
-        if value.startswith("/"):
-            self.post_message(self.SlashChanged(value))
+    def _on_text_area_changed(self, event: TextArea.Changed) -> None:
+        """Detect slash commands and post filter events."""
+        text = self.text
+        if text.startswith("/"):
+            self.post_message(self.SlashChanged(text))
         else:
             self.post_message(self.SlashChanged(""))
 
-    # -- Tab autocomplete ------------------------------------------------
+    # -- Arrow-key history -----------------------------------------------
+
+    def action_cursor_up(self) -> None:
+        """Up arrow: navigate history when at first line, else move cursor."""
+        row, _col = self.cursor_location
+        if row == 0 and self._history:
+            self._navigate_history(-1)
+        else:
+            super().action_cursor_up()
+
+    def action_cursor_down(self) -> None:
+        """Down arrow: navigate history when at last line, else move cursor."""
+        row, _col = self.cursor_location
+        last_row = self.document.line_count - 1
+        if row >= last_row and self._history:
+            self._navigate_history(1)
+        else:
+            super().action_cursor_down()
+
+    def _navigate_history(self, direction: int) -> None:
+        """Cycle through command history."""
+        if self._history_index == -1:
+            self._scratch = self.text
+            if direction == -1:
+                self._history_index = len(self._history) - 1
+            else:
+                return  # nothing to go "down" to from scratch
+
+        new_index = self._history_index + direction
+        if 0 <= new_index < len(self._history):
+            self._history_index = new_index
+            self.text = self._history[self._history_index]
+        elif new_index >= len(self._history):
+            # Past the end: restore scratch
+            self._history_index = -1
+            self.text = self._scratch
+
+    # -- Tab autocomplete (fuzzy) ----------------------------------------
 
     def action_focus_next(self) -> None:
-        """Override Tab: autocomplete when in slash mode, else move focus."""
-        if self.value.startswith("/"):
-            match = _best_match(self.value)
+        """Tab: fuzzy-autocomplete slash commands, else move focus."""
+        if self.text.startswith("/"):
+            match = _fuzzy_best_match(self.text)
             if match:
-                self.value = match
-                self.cursor_position = len(match)
+                self.text = match
+                self.cursor_location = (self.document.line_count - 1, len(match))
                 self.post_message(self.SlashChanged(match))
         else:
-            # Delegate to the screen-level focus-next behavior
             self.screen.action_focus_next()
 
 
-def _best_match(partial: str) -> str | None:
-    """Return the best autocomplete match for a partial slash command."""
-    prefix = partial.lower()
-    candidates = [
-        cmd for cmd, _usage, _desc in COMMAND_DEFS
-        if cmd.lower().startswith(prefix)
-    ]
-    if not candidates:
-        candidates = [
-            cmd for cmd, _usage, _desc in COMMAND_DEFS
-            if prefix.lstrip("/") in cmd.lower()
-        ]
-    if not candidates:
+# -- Fuzzy matching --------------------------------------------------------
+
+def _fuzzy_score(candidate: str, query: str) -> int:
+    """Score a candidate against a query using character contiguity.
+
+    Returns a score where higher = better match:
+      - characters must appear in order in the candidate
+      - contiguous runs are heavily weighted
+      - exact prefix match gets a large bonus
+    """
+    c = candidate.lower()
+    q = query.lower()
+    if not q:
+        return 0
+    if c.startswith(q):
+        return 1000 + len(q) * 10  # strong prefix bonus
+    if q in c:
+        return 500 + len(q) * 5  # substring bonus
+
+    # Character-by-character ordered matching
+    qi = 0
+    last_match = -1
+    longest_contig = 0
+    current_contig = 0
+    for i, ch in enumerate(c):
+        if qi < len(q) and ch == q[qi]:
+            qi += 1
+            if last_match >= 0 and i == last_match + 1:
+                current_contig += 1
+            else:
+                current_contig = 1
+            longest_contig = max(longest_contig, current_contig)
+            last_match = i
+    if qi < len(q):
+        return 0  # not all chars matched
+    return longest_contig * 10 + qi * 2  # contiguity-weighted
+
+
+def _fuzzy_best_match(partial: str) -> str | None:
+    """Return the best fuzzy-matching command for autocomplete."""
+    prefix = partial.lstrip("/").lower()
+    scored: list[tuple[int, str]] = []
+    for cmd, _usage, _desc in COMMAND_DEFS:
+        cmd_name = cmd.lstrip("/").lower()
+        if prefix and prefix not in cmd_name:
+            # Also try fuzzy
+            score = _fuzzy_score(cmd, partial)
+            if score <= 0:
+                # Fallback: check if search term appears anywhere
+                if prefix not in cmd_name and prefix not in cmd:
+                    continue
+                score = 1
+        else:
+            score = _fuzzy_score(cmd, partial)
+
+        if score > 0:
+            scored.append((score, cmd))
+
+    if not scored:
         return None
 
-    # Return the shortest exact prefix match, or the first candidate
-    exact = [c for c in candidates if c.lower().startswith(prefix)]
-    candidate = (exact or candidates)[0]
+    scored.sort(key=lambda x: x[0], reverse=True)
+    best = scored[0][1]
 
-    # If there's a single candidate, add a trailing space
-    if len(exact or candidates) == 1:
-        return candidate + " "
-    return candidate
+    # If only one match, add trailing space
+    if len(scored) == 1:
+        return best + " "
+    return best
