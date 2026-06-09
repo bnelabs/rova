@@ -57,8 +57,10 @@ class TokenUsage:
 
 
 def token_usage(state: ChatState) -> TokenUsage:
+    from rova.skills import get_skill_messages
     texts: list[str] = []
-    texts.extend(message.get("content", "") for message in _skill_messages(state))
+    for msg in get_skill_messages(state.skills_dir, state.active_skills):
+        texts.append(msg.get("content", ""))
     texts.extend(str(message.get("content", "")) for message in state.history)
     return TokenUsage(
         used_tokens=sum(estimate_tokens(text) for text in texts),
@@ -71,21 +73,3 @@ def estimate_tokens(text: str) -> int:
         return 0
     pieces = re.findall(r"\w+|[^\w\s]", text, flags=re.UNICODE)
     return max(1, len(pieces))
-
-
-def _skill_messages(state: ChatState) -> list[dict[str, str]]:
-    messages: list[dict[str, str]] = []
-    for name in state.active_skills:
-        text = _read_skill(state.skills_dir, name)
-        if text:
-            messages.append({"role": "system", "content": f"Active skill: {name}\n{text}"})
-    return messages
-
-
-def _read_skill(skills_dir: Path, name: str) -> str:
-    if "/" in name or "\\" in name or name.startswith("."):
-        return ""
-    path = skills_dir / f"{name}.md"
-    if not path.is_file():
-        return ""
-    return path.read_text(encoding="utf-8").strip()

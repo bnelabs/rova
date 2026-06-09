@@ -18,3 +18,12 @@ def read_skill(skills_dir: Path, name: str) -> str:
     if not path.is_file():
         return ""
     return path.read_text(encoding="utf-8").strip()
+
+
+def get_skill_messages(skills_dir: Path, active_skills: list[str]) -> list[dict[str, str]]:
+    messages: list[dict[str, str]] = []
+    for name in active_skills:
+        text = read_skill(skills_dir, name)
+        if text:
+            messages.append({"role": "system", "content": f"Active skill: {name}\n{text}"})
+    return messages

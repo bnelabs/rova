@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+import json
 import time
-from typing import Any
+from typing import Any, AsyncGenerator
 
 import httpx
 
@@ -23,17 +24,6 @@ def _metadata_from_state(state: ChatState) -> dict[str, Any]:
     if state.quality:
         metadata["quality"] = state.quality
     return metadata
-
-
-def _skill_messages(state: ChatState) -> list[dict[str, str]]:
-    from rova.skills import read_skill
-
-    messages: list[dict[str, str]] = []
-    for name in state.active_skills:
-        text = read_skill(state.skills_dir, name)
-        if text:
-            messages.append({"role": "system", "content": f"Active skill: {name}\n{text}"})
-    return messages
 
 
 def _extract_assistant_content(raw: dict[str, Any]) -> str:
@@ -63,13 +53,14 @@ def _maybe_float(value: Any) -> float | None:
         return None
 
 
-def _build_payload(message: str, state: ChatState, tools: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+def _build_payload(message: str, state: ChatState, tools: list[dict[str, Any]] | None = None, stream: bool = False) -> dict[str, Any]:
     """Build the request payload for a chat completion."""
-    messages = [*_skill_messages(state), *state.history, {"role": "user", "content": message}]
+    from rova.skills import get_skill_messages
+    messages = [*get_skill_messages(state.skills_dir, state.active_skills), *state.history, {"role": "user", "content": message}]
     payload: dict[str, Any] = {
         "model": DEFAULT_MODEL,
         "messages": messages,
-        "stream": False,
+        "stream": stream,
     }
     metadata = _metadata_from_state(state)
     if metadata:
@@ -148,7 +139,7 @@ class RouterClient:
         tools: list[dict[str, Any]] | None = None,
     ) -> ChatResult:
         """Send a message synchronously and return the result."""
-        payload = _build_payload(message, state, tools)
+        payload = _build_payload(message, state, tools, stream=False)
         started = time.perf_counter()
         response = httpx.post(
             f"{self.base_url}/v1/chat/completions",
@@ -206,7 +197,7 @@ class RouterClient:
         client: httpx.AsyncClient | None = None,
     ) -> ChatResult:
         """Send a message asynchronously using an optional shared AsyncClient."""
-        payload = _build_payload(message, state, tools)
+        payload = _build_payload(message, state, tools, stream=False)
         started = time.perf_counter()
 
         if client is not None:
@@ -231,6 +222,59 @@ class RouterClient:
             {"role": "assistant", "content": result.content},
         ])
         return result
+
+    async def async_stream(
+        self,
+        message: str,
+        state: ChatState,
+        tools: list[dict[str, Any]] | None = None,
+        client: httpx.AsyncClient | None = None,
+    ) -> AsyncGenerator[str, None]:
+        """Stream a chat completion asynchronously."""
+        payload = _build_payload(message, state, tools, stream=True)
+
+        # Internal helper to handle the request
+        async def _stream_req(c: httpx.AsyncClient):
+            async with c.stream(
+                "POST",
+                f"{self.base_url}/v1/chat/completions",
+                json=payload,
+                timeout=self.timeout,
+            ) as response:
+                response.raise_for_status()
+                full_content = []
+                async for line in response.aiter_lines():
+                    if not line.startswith("data: "):
+                        continue
+                    data_str = line[6:].strip()
+                    if data_str == "[DONE]":
+                        break
+                    try:
+                        chunk = json.loads(data_str)
+                        choices = chunk.get("choices") or []
+                        if not choices:
+                            continue
+                        delta = choices[0].get("delta") or {}
+                        content = delta.get("content", "")
+                        if content:
+                            full_content.append(content)
+                            yield content
+                    except json.JSONDecodeError:
+                        continue
+
+                # Update state history after stream is complete
+                state.history.extend([
+                    {"role": "user", "content": message},
+                    {"role": "assistant", "content": "".join(full_content)},
+                ])
+
+        if client is not None:
+            async for chunk in _stream_req(client):
+                yield chunk
+        else:
+            async with httpx.AsyncClient() as ac:
+                async for chunk in _stream_req(ac):
+                    yield chunk
 
     async def async_health(self, client: httpx.AsyncClient | None = None) -> dict[str, Any]:
         if client is not None:

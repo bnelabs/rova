@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 
 import httpx
+from rich.text import Text
 from textual import work
 from textual.app import ComposeResult
 from textual.containers import Horizontal
@@ -166,14 +167,42 @@ class ChatScreen(Screen[None]):
         chat_view = self.query_one("#chat-view", ChatView)
         tools = TOOL_DEFINITIONS if self.state.profile == "tool_agent" else None
 
-        try:
-            result = await self.client.async_send(
-                message, self.state, tools, self._http
-            )
-        except Exception as exc:
-            chat_view.add_error(f"Send failed: {exc}")
-            self._refresh_all()
-            return
+        if tools:
+            # If tools are active, we use non-streaming for now to handle the loop
+            try:
+                result = await self.client.async_send(
+                    message, self.state, tools, self._http
+                )
+            except Exception as exc:
+                chat_view.add_error(f"Send failed: {exc}")
+                self._refresh_all()
+                return
+        else:
+            # Normal chat uses streaming
+            import time
+            start_time = time.perf_counter()
+            full_content = []
+            stream_widget = None
+            try:
+                async for chunk in self.client.async_stream(
+                    message, self.state, None, self._http
+                ):
+                    if not stream_widget:
+                         stream_widget = chat_view.start_assistant_stream()
+                    full_content.append(chunk)
+                    chat_view.append_assistant(stream_widget, chunk)
+
+                wall_seconds = time.perf_counter() - start_time
+                # Remove the streaming widget and add a proper Panel for the final result
+                if stream_widget:
+                    stream_widget.remove()
+                chat_view.add_assistant("".join(full_content), wall_seconds)
+                self._refresh_all()
+                return
+            except Exception as exc:
+                chat_view.add_error(f"Stream failed: {exc}")
+                self._refresh_all()
+                return
 
         max_iterations = 10
         iteration = 0

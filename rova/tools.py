@@ -23,20 +23,23 @@ def execute_tool_call(
         json.loads(raw_arguments) if isinstance(raw_arguments, str) else raw_arguments
     )
 
-    if name == "execute_python":
-        result = execute_python(arguments, workspace_dir)
-    elif name == "write_file":
-        result = write_file(arguments, workspace_dir)
-    elif name == "read_file":
-        result = read_file(arguments, workspace_dir)
-    elif name == "list_files":
-        result = list_files(arguments, workspace_dir)
-    elif name == "web_search":
-        result = web_search(arguments)
-    elif name == "web_fetch":
-        result = web_fetch(arguments)
-    else:
-        result = f"unknown tool: {name}"
+    try:
+        if name == "execute_python":
+            result = execute_python(arguments, workspace_dir)
+        elif name == "write_file":
+            result = write_file(arguments, workspace_dir)
+        elif name == "read_file":
+            result = read_file(arguments, workspace_dir)
+        elif name == "list_files":
+            result = list_files(arguments, workspace_dir)
+        elif name == "web_search":
+            result = web_search(arguments)
+        elif name == "web_fetch":
+            result = web_fetch(arguments)
+        else:
+            result = f"unknown tool: {name}"
+    except Exception as e:
+        result = f"Tool execution error ({name}): {str(e)}"
 
     return {
         "role": "tool",

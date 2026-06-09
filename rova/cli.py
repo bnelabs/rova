@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 from typing import Any
@@ -22,9 +23,9 @@ from rova.state import (
 )
 from rova.commands import _format_ingest, _format_search, _split_paths_and_urls
 
-DEFAULT_URL = "http://127.0.0.1:8010"
-DEFAULT_WORKSPACE = Path.home() / "rova-workspace"
-DEFAULT_SKILLS_DIR = Path("skills")
+DEFAULT_URL = os.environ.get("ROVA_ROUTER_URL", "http://127.0.0.1:8010")
+DEFAULT_WORKSPACE = Path(os.environ.get("ROVA_WORKSPACE", "~/rova-workspace")).expanduser()
+DEFAULT_SKILLS_DIR = Path(os.environ.get("ROVA_SKILLS_DIR", "skills"))
 
 
 def build_parser() -> argparse.ArgumentParser:
