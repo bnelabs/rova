@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import httpx
 from textual import work
@@ -72,7 +72,7 @@ class ChatScreen(Screen[None]):
     async def on_unmount(self) -> None:
         saved = auto_save(self.state)
         if saved:
-            self._notify(f"Session autosaved: {saved}", severity="info")
+            self._notify(f"Session autosaved: {saved}", severity="information")
         await self._http.aclose()
 
     def compose(self) -> ComposeResult:
@@ -92,7 +92,7 @@ class ChatScreen(Screen[None]):
 
     # -- Toast notifications for background events -------------------------------
 
-    def _notify(self, message: str, severity: str = "info") -> None:
+    def _notify(self, message: str, severity: Literal["information", "warning", "error"] = "information") -> None:
         """Show a non-blocking toast notification.
 
         Textual's built-in notify() is used — it auto-dismisses after a timeout.

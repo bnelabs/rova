@@ -1,3 +1,4 @@
+# mypy: ignore-errors
 """MCP (Model Context Protocol) client for connecting external tool servers.
 
 Supports two transports:

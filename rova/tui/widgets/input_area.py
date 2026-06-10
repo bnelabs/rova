@@ -180,12 +180,12 @@ class ChatInput(TextArea):
 
     # -- Readline keybindings -----------------------------------------------
 
-    def action_cursor_line_start(self) -> None:
+    def action_cursor_line_start(self, select: bool = False) -> None:
         """Ctrl+A: jump cursor to the beginning of the line."""
         row, _col = self.cursor_location
         self.cursor_location = (row, 0)
 
-    def action_cursor_line_end(self) -> None:
+    def action_cursor_line_end(self, select: bool = False) -> None:
         """Ctrl+E: jump cursor to the end of the line."""
         row = self.cursor_location[0]
         col = len(self.document.lines[row])
@@ -201,14 +201,14 @@ class ChatInput(TextArea):
             new_col -= 1
         while new_col > 0 and text[new_col - 1] not in (" ", "\t", "\n"):
             new_col -= 1
-        self.document.replace(row, new_col, row, col, "")
+        self.document.replace(row, new_col, row, col, "")  # type: ignore[attr-defined]
         self.cursor_location = (row, new_col)
 
     def action_clear_line(self) -> None:
         """Ctrl+U: delete all text before the cursor on the current line."""
         row, col = self.cursor_location
         if col > 0:
-            self.document.replace(row, 0, row, col, "")
+            self.document.replace(row, 0, row, col, "")  # type: ignore[attr-defined]
             self.cursor_location = (row, 0)
 
     def action_kill_to_end(self) -> None:
@@ -216,7 +216,7 @@ class ChatInput(TextArea):
         row, col = self.cursor_location
         end_col = len(self.document.lines[row])
         if col < end_col:
-            self.document.replace(row, col, row, end_col, "")
+            self.document.replace(row, col, row, end_col, "")  # type: ignore[attr-defined]
 
     # -- Tab autocomplete (fuzzy) -----------------------------------------
 

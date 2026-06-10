@@ -422,6 +422,7 @@ def execute_tool_call(
             }
 
     # Dispatch: try built-in registry → plugins → MCP
+    result: str | None = None
     if name == "execute_python":
         result = execute_python(arguments, workspace_dir, profile=profile_for_tool(name))
     else:

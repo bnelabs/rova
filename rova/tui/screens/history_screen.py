@@ -111,7 +111,7 @@ class HistoryScreen(ModalScreen[None]):
         if event.button.id == "history-close":
             self.app.pop_screen()
 
-    def action_dismiss(self) -> None:
+    def action_dismiss(self, result: None = None) -> None:  # type: ignore[override]
         self.app.pop_screen()
 
 

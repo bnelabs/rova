@@ -324,7 +324,7 @@ class BwrapSandbox(SandboxBackend):
 
             # Filesystem access: only bind workspace if needed
             if not p.needs_filesystem:
-                cmd.insert(8, "--tmpfs", "/home")
+                cmd[8:8] = ["--tmpfs", "/home"]
 
             cmd.extend([sys.executable, "-c", code])
 

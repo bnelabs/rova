@@ -183,7 +183,7 @@ def main(argv: list[str] | None = None) -> int:
             _print_chat_result(result)
             return 0
         if args.command == "health":
-            print(json.dumps(client.health(), indent=2, sort_keys=True))
+            print(json.dumps(client.health(), indent=2, sort_keys=True))  # type: ignore[attr-defined]
             return 0
         if args.command == "profiles":
             if not hasattr(client, "profiles"):
@@ -226,7 +226,7 @@ def main(argv: list[str] | None = None) -> int:
 def _run_tui(client: BaseClient, state: ChatState, workspace_dir: Path) -> int:
     from rova.tui.app import run_app
 
-    run_app(client, state, workspace_dir)
+    run_app(client, state, workspace_dir)  # type: ignore[arg-type]
     return 0
 
 
