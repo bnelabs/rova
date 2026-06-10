@@ -14,7 +14,7 @@ pip install -e ".[dev]"
 python -m pytest tests/ -v
 ```
 
-You need Python 3.12 or later. A running [llama-router](https://github.com/komedi/llama-router) instance is required for end-to-end testing, but unit and integration tests run without one.
+You need Python 3.12 or later. An OpenAI-compatible backend (Ollama, vLLM, or any `/v1` endpoint) is required for end-to-end testing, but unit and integration tests run without one.
 
 ## Running Tests
 

@@ -1,8 +1,6 @@
 # r105 — Beyond the prompt.
 
-r105 is a rich terminal AI assistant built on [Textual](https://textual.textualize.io/). It connects to any OpenAI-compatible API (OpenAI, Ollama, vLLM, Groq, llama-router, etc.) and provides an interactive chat TUI with streaming SSE responses, a slash-command system, fuzzy command palette, local tool execution, secure sandboxing, MCP integration, plugin extensibility, session persistence, and multiple themes.
-
-When paired with [llama-router](https://github.com/komedi/llama-router), r105 gains task profiles, RAG retrieval, and metadata-aware routing — but no backend is required. It works out of the box with any OpenAI-compatible endpoint.
+r105 is a rich terminal AI assistant built on [Textual](https://textual.textualize.io/). It connects to any OpenAI-compatible API (OpenAI, Ollama, vLLM, Groq, and others) and provides an interactive chat TUI with streaming SSE responses, a slash-command system, fuzzy command palette, local tool execution, secure sandboxing, MCP integration, plugin extensibility, session persistence, and multiple themes.
 
 <p align="center">
   <img src="https://img.shields.io/pypi/v/r105?color=cba6f7" alt="PyPI">
