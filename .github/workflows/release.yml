@@ -78,6 +78,31 @@ jobs:
           name: r105-macos
           path: dist/r105
 
+  binary-windows:
+    name: Build Windows x64 binary
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: pip install pyinstaller .
+      - name: Build standalone binary
+        run: |
+          pyinstaller --onefile --name r105 ^
+            --hidden-import=r105.cli ^
+            --hidden-import=r105.tui ^
+            --hidden-import=r105.tui.screens ^
+            --hidden-import=r105.tui.widgets ^
+            --hidden-import=r105.themes ^
+            --add-data "r105/themes;r105/themes" ^
+            r105/__main__.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: r105-windows
+          path: dist/r105.exe
+
   binary-macos-arm:
     name: Build macOS ARM binary
     runs-on: macos-latest
@@ -172,7 +197,7 @@ jobs:
 
   release:
     name: Create GitHub Release
-    needs: [binary-linux, binary-macos, binary-macos-arm]
+    needs: [binary-linux, binary-macos, binary-windows, binary-macos-arm]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
@@ -185,17 +210,23 @@ jobs:
           path: artifacts/macos
       - uses: actions/download-artifact@v4
         with:
+          name: r105-windows
+          path: artifacts/windows
+      - uses: actions/download-artifact@v4
+        with:
           name: r105-macos-arm
           path: artifacts/macos-arm
       - name: Rename binaries with platform suffix
         run: |
           mv artifacts/linux/r105 artifacts/linux/r105-linux-x64
           mv artifacts/macos/r105 artifacts/macos/r105-macos-x64
+          mv artifacts/windows/r105.exe artifacts/windows/r105-windows-x64.exe
           mv artifacts/macos-arm/r105 artifacts/macos-arm/r105-macos-arm64
       - uses: softprops/action-gh-release@v2
         with:
           files: |
             artifacts/linux/r105-linux-x64
             artifacts/macos/r105-macos-x64
+            artifacts/windows/r105-windows-x64.exe
             artifacts/macos-arm/r105-macos-arm64
           generate_release_notes: true
