@@ -4,19 +4,36 @@
 
 # Rova — Rapid On-demand Virtual Assistant
 
-Rich terminal frontend for [llama-router](https://github.com/komedi/llama-router) — a Textual-based TUI with interactive slash commands, multi-line input, fuzzy matching, tool execution, RAG management, and multiple themes.
+Rova is a rich terminal frontend for [llama-router](https://github.com/komedi/llama-router), built on [Textual](https://textual.textualize.io/). It provides an interactive chat TUI with streaming SSE responses, slash-command system, fuzzy command palette, local tool execution, secure sandboxing, MCP integration, plugin extensibility, session persistence, and multiple themes.
+
+<p align="center">
+  <img src="https://img.shields.io/pypi/v/rova?color=cba6f7" alt="PyPI">
+  <img src="https://img.shields.io/badge/python-3.12%20%7C%203.13-blue" alt="Python">
+  <img src="https://img.shields.io/badge/tests-165%20passed-brightgreen" alt="Tests">
+  <img src="https://img.shields.io/badge/license-MIT-green" alt="License">
+</p>
+
+---
 
 ## Prerequisites
 
-- Python 3.12+
-- [llama-router](https://github.com/komedi/llama-router) running on `http://127.0.0.1:8010`
+- **Python 3.12+**
+- **[llama-router](https://github.com/komedi/llama-router)** running on `http://127.0.0.1:8010` (or set `ROVA_URL`)
 
-## Install
+---
+
+## Installation
 
 ### pipx (recommended)
 
 ```sh
 pipx install rova
+```
+
+### Homebrew (macOS / Linux)
+
+```sh
+brew install bnelabs/tap/rova
 ```
 
 ### From source
@@ -29,17 +46,31 @@ python -m venv .venv
 ln -sf "$(pwd)/bin/rova" ~/.local/bin/rova
 ```
 
-Or install from a local checkout:
+### Docker
 
 ```sh
-pip install -e /path/to/rova
-ln -sf /path/to/rova/bin/rova ~/.local/bin/rova
+docker build -t rova .
+docker run -it --rm \
+  -v ~/.config/rova:/root/.config/rova \
+  -v ~/rova-workspace:/root/rova-workspace \
+  rova chat
 ```
 
-## Usage
+For a quick-start stack with llama-router, use the included `docker-compose.yml`:
 
 ```sh
-# Interactive chat (default)
+docker compose up -d llama-router
+docker compose run rova chat
+```
+
+---
+
+## CLI Usage
+
+Rova can be used directly from the command line for one-shot prompts or management commands:
+
+```sh
+# Interactive chat (default, opens TUI)
 rova chat
 
 # One-shot prompt
@@ -57,49 +88,53 @@ rova ingest /path/to/docs https://example.com/page
 # Search the RAG index
 rova search "query terms"
 
-# Full options
-rova --help
+# Version info
+rova --version
 ```
 
-### CLI Options
+### CLI Flags
 
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--url` | `http://127.0.0.1:8010` | Router base URL |
-| `--workspace` | `~/rova-workspace` | Generated files directory |
-| `--skills-dir` | `./skills` | Skills directory |
-| `--profile` | auto | Force a task profile |
-| `--rag` | off | Enable RAG mode |
-| `--quality` | auto | Quality hint (fast/balanced/best) |
-| `--max-tokens` | auto | Override max_tokens |
-| `--json` | off | JSON response mode |
+| `--workspace` | `~/rova-workspace` | Workspace directory for generated files |
+| `--skills-dir` | `./skills` | Directory containing skill `.md` files |
+| `--profile` | auto | Force a router task profile |
+| `--model` | auto | Override the model selection |
+| `--quality` | auto | Quality hint: `fast`, `balanced`, or `best` |
+| `--rag` | off | Enable RAG (Retrieval-Augmented Generation) |
+| `--max-tokens` | auto | Override max output tokens |
+| `--json` | off | Request JSON-object responses |
 
-## Interactive Commands
+---
 
-Type `/` in the TUI to open the interactive command palette with fuzzy filtering, arrow-key navigation, and Tab autocomplete.
+## Interactive TUI Commands
+
+Press `/` in the TUI to open the interactive command palette with fuzzy filtering, arrow-key navigation, and Tab autocomplete. The palette shows commands grouped by category.
 
 ### Chat
 
 | Command | Description |
 |---------|-------------|
-| `/state` | Show active settings (profile, rag, quality, tokens) |
-| `/tokens` | Show estimated context usage |
-| `/model` | Show active model and context window capacity |
-| `/history` | Open scrollable history browser |
+| `/state` | Show active settings (profile, RAG, quality, tokens, model) |
+| `/tokens` | Show estimated context token usage and capacity |
+| `/model [name]` | Show current model, list available models, or switch models |
+| `/history` | Open scrollable history browser with fuzzy search |
 | `/clear` | Clear all conversation history |
 | `/compact` | Summarize conversation history and continue |
-| `/profile <name>` | Force a router task profile, or omit for auto |
+| `/profile <name>` | Force a router task profile, or omit for auto-detection |
 | `/quality fast\|balanced\|best` | Set quality hint metadata |
 | `/json [on\|off]` | Toggle JSON object response mode |
 | `/max <tokens>` | Override max_tokens, or omit for auto |
-| `/autocompact [on\|off]` | Toggle auto-compaction at 80% context |
+| `/autocompact [on\|off]` | Toggle auto-compaction at 80% context threshold |
+| `/copy` | Copy last assistant message to system clipboard |
 
-### RAG
+### RAG (Retrieval-Augmented Generation)
 
 | Command | Description |
 |---------|-------------|
-| `/rag on\|off` | Toggle RAG metadata for chat requests |
-| `/rag ingest <path-or-url>...` | Ingest local files/directories or URLs |
+| `/rag [on\|off]` | Toggle RAG metadata for chat requests |
+| `/rag ingest <path-or-url>...` | Ingest local files/directories or URLs into the index |
 | `/rag search <query>` | Search the active RAG index |
 | `/rag list` | List all indexed documents |
 | `/rag delete <id>` | Remove a document from the RAG index |
@@ -107,38 +142,110 @@ Type `/` in the TUI to open the interactive command palette with fuzzy filtering
 
 ### Skills
 
+Skills are reusable prompt templates stored as Markdown files with `{param}` placeholder substitution.
+
 | Command | Description |
 |---------|-------------|
-| `/skills` | List available skill files |
+| `/skills` | List available skill files in the skills directory |
 | `/skill use <name> [key=val...]` | Add a skill with optional parameters |
-| `/skill drop <name>` | Remove one active skill |
+| `/skill drop <name>` | Remove one active skill from the conversation |
 | `/skill clear` | Remove all active skills |
-| `/skill show <name>` | Print a skill file |
+| `/skill show <name>` | Print the contents of a skill file |
+
+Example skill file (`skills/search.md`):
+
+```markdown
+When answering questions, use web_search with query="{query}" and cite your sources.
+```
+
+Usage:
+
+```
+/skill use search query="Python 3.13 release notes"
+```
+
+### Sessions & Export
+
+Conversations can be saved, loaded, and exported in multiple formats. Rova also auto-saves on exit as `__autosave__`.
+
+| Command | Description |
+|---------|-------------|
+| `/session save <name>` | Save current conversation to `~/.config/rova/sessions/` |
+| `/session load <name>` | Load and restore a previously saved session |
+| `/session list` | List all saved sessions with previews and timestamps |
+| `/session delete <name>` | Delete a saved session |
+| `/export markdown` | Export conversation as Markdown to the workspace |
+| `/export json` | Export conversation as JSON |
+| `/export html` | Export conversation as a styled HTML page |
+
+### Plugins
+
+Custom tools can be loaded from Python scripts in `~/.config/rova/plugins/`. Each file exposes a `register(registry)` function that adds tools via `registry.add_tool()`. See [docs/TOOLS.md](docs/TOOLS.md) for the API reference.
+
+| Command | Description |
+|---------|-------------|
+| `/plugin list` | List loaded custom tool plugins |
+| `/plugin reload` | Reload plugins from disk |
+
+### MCP (Model Context Protocol)
+
+Rova can connect to external MCP servers (stdio or SSE transport) to access hundreds of community-built tools without changing Rova's code. Configure servers in `~/.config/rova/config.json`:
+
+```json
+{
+  "mcp_servers": [
+    {
+      "name": "github",
+      "transport": "sse",
+      "url": "http://127.0.0.1:3001/mcp"
+    },
+    {
+      "name": "filesystem",
+      "transport": "stdio",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"]
+    }
+  ]
+}
+```
+
+| Command | Description |
+|---------|-------------|
+| `/mcp list` | List connected MCP servers and their tool counts |
+| `/mcp tools <server>` | List tools exposed by a specific MCP server |
 
 ### Workspace & System
 
 | Command | Description |
 |---------|-------------|
-| `/workspace` | Show workspace directory and generated files |
-| `/preview <filename>` | Preview a workspace file |
-| `/theme <name>` | Switch theme (rova, dracula, solarized-dark, high-contrast) |
-| `/health` | Check llama-router health |
-| `/profiles` | List available router profiles |
-| `/help` | Show full command reference |
+| `/workspace` | Show workspace directory and list generated files |
+| `/preview <filename>` | Preview a workspace file's contents |
+| `/theme <name>` | Switch theme: `rova`, `dracula`, `solarized-dark`, `high-contrast` |
+| `/health` | Check llama-router and upstream model health |
+| `/profiles` | List available router task profiles |
+| `/help` | Show the full command reference |
 | `/exit` | Quit Rova |
+
+---
 
 ## Keybindings
 
-| Key | Action |
-|-----|--------|
-| `Enter` | Submit message (normal mode) or select command (slash mode) |
-| `Shift+Enter` | Insert newline |
-| `↑` / `↓` | Navigate history (normal) or palette (slash mode) |
-| `Tab` | Fuzzy-autocomplete slash command |
-| `Escape` | Dismiss command palette |
-| `Ctrl+R` | Open interactive history browser |
-| `F1` / `Ctrl+H` | Show help screen |
-| `Ctrl+Q` / `Ctrl+C` | Quit |
+| Key | Context | Action |
+|-----|---------|--------|
+| `Enter` | Normal mode | Submit message |
+| `Enter` | Slash mode | Execute or select command |
+| `Shift+Enter` | Any | Insert newline |
+| `↑` / `↓` | Normal mode | Navigate input history |
+| `↑` / `↓` | Slash mode | Navigate command palette |
+| `Tab` | Slash mode | Fuzzy-autocomplete command |
+| `Escape` | Slash mode | Dismiss command palette |
+| `Ctrl+R` | Any | Open interactive history browser (fuzzy search supported) |
+| `Ctrl+S` | History screen | Quick-save current session |
+| `Ctrl+Y` | Any | Copy last assistant response to clipboard |
+| `F1` / `Ctrl+H` | Any | Show help screen |
+| `Ctrl+Q` / `Ctrl+C` | Any | Quit |
+
+---
 
 ## Themes
 
@@ -151,56 +258,104 @@ Four themes included — switch at runtime with `/theme <name>`:
 | `solarized-dark` | `#268bd2` blue | Solarized Dark |
 | `high-contrast` | `#ffff00` yellow | Accessibility-focused |
 
-## Tools
+---
 
-The local tool executor provides 9 tools the LLM can call:
+## Built-in Tools
 
-| Tool | Description |
-|------|-------------|
-| `execute_python` | Sandboxed Python execution (256MB mem, 25s CPU, no network) |
-| `write_file` | Write content to workspace |
-| `read_file` | Read file contents |
-| `list_files` | List directory contents |
-| `web_search` | Search via DuckDuckGo (no API key) |
-| `web_fetch` | Fetch URL content (HTML stripped) |
-| `get_time` | Current system time in ISO 8601 |
-| `calculate` | Safe arithmetic evaluation |
-| `system_info` | OS, Python version, CPU count |
+The local tool executor provides 9 tools the LLM can call. All tools are validated before execution (argument size caps, SSRF prevention, path traversal hardening). `execute_python` runs in a sandboxed environment.
 
-## Skill Parameters
+| Tool | Description | Sandbox Profile |
+|------|-------------|----------------|
+| `execute_python` | Sandboxed Python execution (256MB, 25s, seccomp) | No network, no filesystem |
+| `write_file` | Write/update files in workspace | Filesystem access |
+| `read_file` | Read file contents (max 50MB) | Filesystem access |
+| `list_files` | List directory contents | Filesystem access |
+| `web_search` | Search via DuckDuckGo (no API key) | Network access |
+| `web_fetch` | Fetch URL content (HTML stripped) | Network access |
+| `get_time` | Current system time in ISO 8601 | Minimal isolation |
+| `calculate` | Safe arithmetic expression evaluator | Minimal isolation |
+| `system_info` | OS, Python version, CPU count | Minimal isolation |
 
-Skills support `{param}` placeholders for dynamic substitution:
+### File Diffing
 
-```markdown
-<!-- skills/search.md -->
-When answering, use web search with query="{query}" and cite sources.
+When `write_file` modifies an existing file, it generates a unified diff. The TUI can display this in a `DiffView` widget with syntax-colored additions/deletions and approve/reject buttons, preventing accidental overwrites.
+
+---
+
+## Sandbox & Security
+
+Rova implements layered security for code execution:
+
+- **Nsjail Sandbox** (strongest): Linux namespace isolation, seccomp-bpf syscall allowlist, network namespace isolation, no host filesystem access
+- **Bwrap Sandbox**: Bubblewrap-based user namespace isolation, minimal `/dev` bind (null, urandom, zero, fd), conditional network/filesystem grants per sandbox profile
+- **RLimit Sandbox**: Resource limits via `setrlimit()` (memory, CPU, file size, child processes)
+- **Noop Sandbox**: Fallback for Windows or when explicit
+
+Backend priority: `nsjail` > `bwrap` > `rlimit` > `none`.
+
+Security features across all tools:
+
+- **SSRF prevention**: URL validation, DNS resolution checks against private IPv4/IPv6 blocks
+- **Path traversal hardening**: Symlink-aware path validation, workspace containment
+- **Environment sanitization**: Secrets, tokens, API keys, SSH keys stripped from subprocess environments
+- **Argument validation**: Size caps on code (100KB), file writes (10MB), search queries (500 chars)
+
+---
+
+## Skills
+
+Skills are reusable Markdown prompt templates. They support `{param}` placeholder substitution for dynamic content injection.
+
+```
+skills/
+├── code-check.md      # Code review assistant
+├── concise.md         # Force concise responses
+├── deep-review.md     # Comprehensive code analysis
+└── rag-answer.md      # RAG-aware answering with citations
 ```
 
-```sh
-/skill use search query="Python 3.13 release notes"
+Skills appear as system messages in the LLM context, allowing them to persist across `/clear`.
+
+---
+
+## Configuration
+
+Rova stores configuration in `~/.config/rova/`:
+
+```
+~/.config/rova/
+├── config.json          # MCP servers, model preferences, sandbox backend
+├── sessions/            # Saved conversation sessions (JSON)
+│   ├── __autosave__.json
+│   └── my-session.json
+├── plugins/             # Custom tool Python files
+│   └── hello.py
+└── state.json           # Persistent TUI state (profile, theme, quality)
 ```
 
-Parameters are substituted when the skill is loaded into the conversation.
-
-## Document Generation
-
-Generate presentations (pptx), documents (docx), and PDFs through the LLM. The model writes Python scripts using python-pptx, python-docx, or fpdf2. Generated files land in `~/rova-workspace/` by default.
-
-## Tests
-
-```sh
-PYTHONPATH=. .venv/bin/python -m pytest tests/ -v
+Example `config.json`:
+```json
+{
+  "model": "gemma-4-12b-it",
+  "sandbox": "bwrap",
+  "mcp_servers": [
+    {
+      "name": "github",
+      "transport": "sse",
+      "url": "http://127.0.0.1:3001/mcp"
+    }
+  ]
+}
 ```
 
-146+ tests covering commands, tools, state, skills, client, integration, TUI components, and the command palette.
+---
 
 ## Docker
 
-### Build and run standalone
+### Standalone
 
 ```sh
 docker build -t rova .
-docker run -it --rm rova --version
 docker run -it --rm \
   -v ~/.config/rova:/root/.config/rova \
   -v ~/rova-workspace:/root/rova-workspace \
@@ -209,29 +364,54 @@ docker run -it --rm \
 
 ### Quick-start stack with llama-router
 
-The included `docker-compose.yml` starts both rova and llama-router:
+The `docker-compose.yml` starts both rova and llama-router on a shared network:
 
 ```sh
-# Start the router in the background
+# Start the router in background
 docker compose up -d llama-router
 
 # Launch the TUI
 docker compose run rova chat
 ```
 
-The compose stack mounts `~/.config/rova` for persistent config and
-`~/.config/llama-router` for router configuration. Both services are on
-the same Docker network — rova connects to `http://llama-router:8010`
-automatically.
+The stack mounts `~/.config/rova` and `~/.config/llama-router` for persistent configuration. Environment variable `ROVA_URL=http://llama-router:8010` is set automatically.
+
+---
+
+## Testing
+
+```sh
+# Install dev dependencies
+pip install -e ".[dev]"
+
+# Run full test suite
+python -m pytest tests/ -v
+
+# With coverage
+python -m pytest tests/ -v --cov=rova --cov-report=term-missing
+
+# Lint and type-check
+ruff check rova/ tests/
+mypy rova/
+```
+
+165 tests covering commands, tools, state, skills, client, integration, session management, TUI components, and the command palette.
+
+---
 
 ## Documentation
 
-- [Architecture](ARCHITECTURE.md) — system design, data flow, component tree, key patterns
-- [Contributing](CONTRIBUTING.md) — dev setup, testing, linting, PR process
-- [Custom Tools](docs/TOOLS.md) — how to add new tools with JSON Schema + handler functions
-- [Skills](docs/SKILLS.md) — creating prompt templates with `{param}` substitution
-- [Changelog](CHANGELOG.md) — version history and release notes
+| Document | Description |
+|----------|-------------|
+| [ARCHITECTURE.md](ARCHITECTURE.md) | System design, data flow, component tree, key patterns |
+| [CHANGELOG.md](CHANGELOG.md) | Version history and release notes |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | Dev setup, testing, linting, PR process |
+| [docs/TOOLS.md](docs/TOOLS.md) | Custom tool + plugin API with JSON Schema |
+| [docs/SKILLS.md](docs/SKILLS.md) | Skill authoring guide with parameters |
+| [docs/homebrew.rb](docs/homebrew.rb) | Homebrew formula template |
+
+---
 
 ## License
 
-MIT
+MIT — see the [LICENSE](LICENSE) file for details.
