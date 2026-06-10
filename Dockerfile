@@ -1,8 +1,8 @@
-# Rova Docker image
+# r105 Docker image
 # Usage:
-#   docker build -t rova .
-#   docker run -it --rm rova --help
-#   docker run -it --rm -v ~/.config/rova:/root/.config/rova rova chat
+#   docker build -t r105 .
+#   docker run -it --rm r105 --help
+#   docker run -it --rm -v ~/.config/r105:/root/.config/r105 r105 chat
 
 FROM python:3.12-slim-bookworm
 
@@ -15,9 +15,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /app
 
 COPY pyproject.toml README.md ./
-COPY rova/ ./rova/
+COPY r105/ ./r105/
 
 RUN pip install --no-cache-dir .
 
-ENTRYPOINT ["rova"]
+ENTRYPOINT ["r105"]
 CMD ["chat"]

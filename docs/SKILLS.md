@@ -1,21 +1,21 @@
-# Skills in Rova
+# Skills in r105
 
 Skills are markdown prompt templates that inject domain-specific guidance into the conversation as system messages. They support `{param}` placeholder substitution for dynamic parameterization.
 
 ## What Are Skills?
 
-A skill is a markdown file in `~/.config/rova/skills/` that describes how the LLM should behave for a specific task. When activated via `/skill use`, its content is prepended to every chat request as a system message.
+A skill is a markdown file in `~/.config/r105/skills/` that describes how the LLM should behave for a specific task. When activated via `/skill use`, its content is prepended to every chat request as a system message.
 
-Skills are the simplest way to customize Rova's behavior without writing code.
+Skills are the simplest way to customize r105's behavior without writing code.
 
 ## Creating a Skill
 
 ### Directory
 
-Skills live in `~/.config/rova/skills/` by default. Create the directory if it doesn't exist:
+Skills live in `~/.config/r105/skills/` by default. Create the directory if it doesn't exist:
 
 ```sh
-mkdir -p ~/.config/rova/skills
+mkdir -p ~/.config/r105/skills
 ```
 
 ### File Format
@@ -23,7 +23,7 @@ mkdir -p ~/.config/rova/skills
 A skill is a plain markdown (`.md`) file. The filename (without `.md`) becomes the skill name:
 
 ```
-~/.config/rova/skills/
+~/.config/r105/skills/
 ├── code-reviewer.md
 ├── poet.md
 ├── web-researcher.md
@@ -33,7 +33,7 @@ A skill is a plain markdown (`.md`) file. The filename (without `.md`) becomes t
 ### Basic Skill
 
 ```markdown
-<!-- ~/.config/rova/skills/poet.md -->
+<!-- ~/.config/r105/skills/poet.md -->
 Always respond in rhyming couplets. Use vivid imagery and metaphor.
 Prefer iambic pentameter where possible. End each response with a ~.
 ```
@@ -48,7 +48,7 @@ Usage:
 Skills support `{key}` placeholders that are substituted when the skill is activated:
 
 ```markdown
-<!-- ~/.config/rova/skills/code-reviewer.md -->
+<!-- ~/.config/r105/skills/code-reviewer.md -->
 You are a {language} code reviewer. Apply the following standards:
 - Style guide: {style_guide}
 - Focus areas: {focus_areas}

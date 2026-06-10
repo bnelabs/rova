@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from rova.skills import list_skills, read_skill
+from r105.skills import list_skills, read_skill
 
 
 class TestListSkills:

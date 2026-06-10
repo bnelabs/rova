@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to Rova are documented in this file.
+All notable changes to r105 are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
@@ -40,8 +40,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - Sandbox abstraction with `BwrapSandbox`, `RLimitSandbox`, and `NoopSandbox` backends
-- Plugin system (`rova/plugins.py`): custom tools from Python files in `~/.config/rova/plugins/`
-- MCP (Model Context Protocol) support (`rova/mcp_client.py`): JSON-RPC over stdio
+- Plugin system (`r105/plugins.py`): custom tools from Python files in `~/.config/r105/plugins/`
+- MCP (Model Context Protocol) support (`r105/mcp_client.py`): JSON-RPC over stdio
 - Session management: `/session save|load|list|delete`, `--session` CLI flag
 - Conversation export: `/export markdown|json|html`
 
@@ -52,7 +52,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Interactive chat with streaming SSE support
 - Built-in tools: `execute_python`, `write_file`, `read_file`, `list_files`, `web_search`, `web_fetch`, `get_time`, `calculate`, `system_info`
 - Slash-command system with fuzzy command palette
-- Theme system with 4 built-in themes (rova, dracula, solarized-dark, high-contrast)
+- Theme system with 4 built-in themes (r105, dracula, solarized-dark, high-contrast)
 - Skills system with markdown skill files and parameter substitution
 - RAG integration with ingest, search, list, delete commands
 - File explorer sidebar

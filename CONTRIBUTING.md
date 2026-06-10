@@ -1,11 +1,11 @@
-# Contributing to Rova
+# Contributing to r105
 
 ## Development Setup
 
 ```sh
 # Clone and set up
-git clone https://github.com/bnelabs/rova.git
-cd rova
+git clone https://github.com/bnelabs/r105.git.git
+cd r105
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -e ".[dev]"
@@ -27,7 +27,7 @@ python -m pytest tests/test_client.py -v
 
 # With coverage
 pip install pytest-cov
-python -m pytest tests/ --cov=rova --cov-report=term-missing
+python -m pytest tests/ --cov=r105 --cov-report=term-missing
 ```
 
 ### Test Structure
@@ -46,16 +46,16 @@ python -m pytest tests/ --cov=rova --cov-report=term-missing
 
 ```sh
 # Lint
-ruff check rova/ tests/
+ruff check r105/ tests/
 
 # Auto-fix
-ruff check --fix rova/ tests/
+ruff check --fix r105/ tests/
 
 # Format
-ruff format rova/ tests/
+ruff format r105/ tests/
 
 # Type check
-mypy rova/
+mypy r105/
 ```
 
 All three must pass before submitting a PR. CI enforces this automatically.
@@ -95,14 +95,14 @@ Textual workers use `@work(exclusive=True)`. The `finally` block is the right pl
 
 ### Adding a New Slash Command
 
-1. Add the command name to `SLASH_COMMANDS` in `rova/commands.py`
+1. Add the command name to `SLASH_COMMANDS` in `r105/commands.py`
 2. Add a new `if command == "/yourcmd":` branch in `handle_slash_command()`
 3. Add the command to `command_menu()` output
-4. Register it in `COMMAND_DEFS` in `rova/tui/widgets/command_palette.py` (category, command, usage, description)
+4. Register it in `COMMAND_DEFS` in `r105/tui/widgets/command_palette.py` (category, command, usage, description)
 
 ### Adding a New Tool
 
-1. Write the handler function in `rova/tools.py`
+1. Write the handler function in `r105/tools.py`
 2. Add the JSON Schema definition to `TOOL_DEFINITIONS`
 3. Add a dispatch branch in `execute_tool_call()`
 4. Add tests in `tests/test_tools.py`
@@ -112,7 +112,7 @@ Textual workers use `@work(exclusive=True)`. The `finally` block is the right pl
 1. Fork the repo and create a feature branch
 2. Make your changes
 3. Add an entry to `CHANGELOG.md` under `[Unreleased]` in the appropriate section
-4. Run `ruff check rova/ tests/ && mypy rova/ && python -m pytest tests/ -v --cov=rova`
+4. Run `ruff check r105/ tests/ && mypy r105/ && python -m pytest tests/ -v --cov=r105`
 5. Push and open a PR against `main`
 6. CI will run the same checks automatically
 

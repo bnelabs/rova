@@ -7,8 +7,8 @@ from pathlib import Path
 
 import pytest
 
-from rova.commands import VALID_THEMES, handle_slash_command
-from rova.state import VALID_PROFILES, VALID_QUALITIES, ChatState
+from r105.commands import VALID_THEMES, handle_slash_command
+from r105.state import VALID_PROFILES, VALID_QUALITIES, ChatState
 
 
 def _run(coro):
@@ -35,11 +35,11 @@ class TestChatCommands:
 
     def test_help(self, state):
         result = _run(handle_slash_command("/help", state))
-        assert "Rova Commands" in result
+        assert "r105 Commands" in result
 
     def test_slash_only(self, state):
         result = _run(handle_slash_command("/", state))
-        assert "Rova Commands" in result
+        assert "r105 Commands" in result
 
     def test_state(self, state):
         result = _run(handle_slash_command("/state", state))
@@ -118,7 +118,7 @@ class TestThemeCommand:
     def test_theme_show_current(self, state):
         result = _run(handle_slash_command("/theme", state))
         assert "theme=" in result
-        assert state.theme == "rova"
+        assert state.theme == "r105"
 
     def test_theme_set_valid(self, state):
         for theme in VALID_THEMES:

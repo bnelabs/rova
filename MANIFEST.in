@@ -1,5 +1,4 @@
 include README.md
-include ROVA.png
 include ARCHITECTURE.md
 include CONTRIBUTING.md
-recursive-include rova/themes *.tcss
+recursive-include r105/themes *.tcss

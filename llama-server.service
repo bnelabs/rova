@@ -1,0 +1,38 @@
+[Unit]
+Description=llama.cpp Server - Gemma 4 12B MTP
+After=network.target nvidia-persistenced.service
+Requires=nvidia-persistenced.service
+
+[Service]
+Type=simple
+User=komedi
+WorkingDirectory=/home/komedi
+# Quick GPU availability check — no model load, runs instantly
+ExecStartPre=/bin/bash -c 'for i in {1..10}; do nvidia-smi -L 2>/dev/null | grep -q "GPU" && exit 0; sleep 1; done; exit 1'
+ExecStart=/home/komedi/llama.cpp/build/bin/llama-server \
+    --model /home/komedi/models/gemma-4-12b-it-UD-Q8_K_XL.gguf \
+    --mmproj /home/komedi/models/mmproj-F16.gguf \
+    --model-draft /home/komedi/models/MTP/gemma-4-12B-it-MTP-Q8_0.gguf \
+    --spec-type draft-mtp \
+    --spec-draft-n-max 4 \
+    --seed 42 \
+    --temp 1.0 \
+    --top-p 0.95 \
+    --top-k 64 \
+    --alias gemma-4-12b-it \
+    --host 0.0.0.0 \
+    --port 8001 \
+    --reasoning auto \
+    --gpu-layers 99 \
+    --spec-draft-ngl 99 \
+    --flash-attn on \
+    --tools all \
+    --chat-template-file /home/komedi/models/gemma4-agentic-template.jinja
+Restart=always
+RestartSec=10
+TimeoutStartSec=300
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

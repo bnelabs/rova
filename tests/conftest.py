@@ -1,4 +1,4 @@
-"""Shared pytest fixtures for Rova tests."""
+"""Shared pytest fixtures for r105 tests."""
 
 from __future__ import annotations
 
@@ -6,15 +6,15 @@ from pathlib import Path
 
 import pytest
 
-from rova.client import RouterClient
-from rova.state import ChatState
+from r105.client import RouterClient
+from r105.state import ChatState
 
 
 @pytest.fixture
 def chat_state() -> ChatState:
     """Return a fresh ChatState with defaults and a temp skills dir."""
     return ChatState(
-        skills_dir=Path("/tmp/rova-test-skills"),
+        skills_dir=Path("/tmp/r105-test-skills"),
         context_tokens=262144,
     )
 

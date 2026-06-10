@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from rova.state import (
+from r105.state import (
     DEFAULT_CONTEXT_TOKENS,
     VALID_PROFILES,
     VALID_QUALITIES,
@@ -26,7 +26,7 @@ class TestChatState:
         assert state.max_tokens is None
         assert state.json_mode is False
         assert state.auto_compact is True
-        assert state.theme == "rova"
+        assert state.theme == "r105"
         assert state.active_skills == []
         assert state.skill_params == {}
         assert state.context_tokens == DEFAULT_CONTEXT_TOKENS

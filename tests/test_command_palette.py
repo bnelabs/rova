@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from rova.tui.widgets.command_palette import (
+from r105.tui.widgets.command_palette import (
     COMMAND_DEFS,
     CommandPalette,
     _fuzzy_score,

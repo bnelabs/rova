@@ -1,6 +1,6 @@
-# Custom Tools in Rova
+# Custom Tools in r105
 
-Rova ships with 9 built-in tools (`execute_python`, `write_file`, `read_file`, `list_files`, `web_search`, `web_fetch`, `get_time`, `calculate`, `system_info`). This guide explains how tools work and how to add your own.
+r105 ships with 9 built-in tools (`execute_python`, `write_file`, `read_file`, `list_files`, `web_search`, `web_fetch`, `get_time`, `calculate`, `system_info`). This guide explains how tools work and how to add your own.
 
 ## How Tools Work
 
@@ -9,13 +9,13 @@ Each tool has two parts:
 1. **A JSON Schema definition** — tells the LLM what the tool does and what arguments it accepts
 2. **A handler function** — executes the tool and returns a result
 
-When the LLM decides to call a tool, it emits a `tool_calls` array in its response. Rova's tool loop picks up these calls, dispatches to the handler via `execute_tool_call()`, and feeds the results back into the conversation.
+When the LLM decides to call a tool, it emits a `tool_calls` array in its response. r105's tool loop picks up these calls, dispatches to the handler via `execute_tool_call()`, and feeds the results back into the conversation.
 
 ## Anatomy of a Tool
 
 ### The Schema Definition
 
-Defined in `rova/tools.py` as an entry in `TOOL_DEFINITIONS`:
+Defined in `r105/tools.py` as an entry in `TOOL_DEFINITIONS`:
 
 ```python
 {
@@ -53,7 +53,7 @@ def web_search(arguments: dict[str, Any]) -> str:
             "https://html.duckduckgo.com/html/",
             params={"q": query},
             timeout=15.0,
-            headers={"User-Agent": "rova/0.2.0"},
+            headers={"User-Agent": "r105/0.2.0"},
             follow_redirects=True,
         )
         response.raise_for_status()
@@ -78,7 +78,7 @@ Let's walk through adding a `send_email` tool.
 
 ### Step 1: Write the Handler
 
-In `rova/tools.py`, add a new function:
+In `r105/tools.py`, add a new function:
 
 ```python
 def send_email(arguments: dict[str, Any]) -> str:

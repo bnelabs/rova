@@ -1,4 +1,4 @@
-# Rova — ruff configuration
+# r105 — ruff configuration
 # https://docs.astral.sh/ruff/
 
 target-version = "py312"

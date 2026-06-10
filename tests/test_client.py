@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import time
 
-from rova.client import (
+from r105.client import (
     RouterClient,
     _build_payload,
     _extract_assistant_content,
@@ -13,7 +13,7 @@ from rova.client import (
     _metadata_from_state,
     _parse_response,
 )
-from rova.state import DEFAULT_MODEL, ChatState
+from r105.state import DEFAULT_MODEL, ChatState
 
 
 class TestParseHelpers:

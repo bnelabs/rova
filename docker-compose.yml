@@ -1,18 +1,18 @@
-# Rova + llama-router quick-start stack
+# r105 + llama-router quick-start stack
 # Usage:
 #   docker-compose up -d llama-router  # start the router
-#   docker-compose run rova chat       # launch the TUI
+#   docker-compose run r105 chat       # launch the TUI
 
 services:
-  rova:
+  r105:
     build: .
     stdin_open: true
     tty: true
     volumes:
-      - ~/.config/rova:/root/.config/rova
-      - rova-workspace:/root/rova-workspace
+      - ~/.config/r105:/root/.config/r105
+      - r105-workspace:/root/r105-workspace
     environment:
-      - ROVA_URL=http://llama-router:8010
+      - R105_URL=http://llama-router:8010
     depends_on:
       - llama-router
 
@@ -25,4 +25,4 @@ services:
     command: ["--config", "/root/.config/llama-router/router.yaml"]
 
 volumes:
-  rova-workspace:
+  r105-workspace:

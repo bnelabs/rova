@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from rova.tui.screens.chat import ChatScreen, _is_exact_command
-from rova.tui.widgets.command_palette import COMMAND_DEFS, CommandPalette
+from r105.tui.screens.chat import ChatScreen, _is_exact_command
+from r105.tui.widgets.command_palette import COMMAND_DEFS, CommandPalette
 
 
 class TestIsExactCommand:
@@ -128,7 +128,7 @@ class TestChatScreenHeader:
 
     def test_header_format(self) -> None:
         """_render_header produces a non-empty string with key fields."""
-        from rova.state import ChatState
+        from r105.state import ChatState
 
         state = ChatState(model="test-model", skills_dir=Path("/tmp"))
         state.history = [

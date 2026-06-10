@@ -11,8 +11,8 @@ import httpx
 import pytest
 from pytest_httpx import HTTPXMock
 
-from rova.client import RouterClient
-from rova.state import ChatState
+from r105.client import RouterClient
+from r105.state import ChatState
 
 
 def _ok_response(content: str = "OK", tool_calls: list | None = None) -> dict:

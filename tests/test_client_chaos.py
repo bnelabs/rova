@@ -16,8 +16,8 @@ import json
 import httpx
 import pytest
 
-from rova.client import BackendCapabilities, DirectClient, RouterClient
-from rova.state import ChatState
+from r105.client import BackendCapabilities, DirectClient, RouterClient
+from r105.state import ChatState
 
 
 @pytest.fixture
@@ -49,21 +49,21 @@ class TestHTTPErrorCodes:
     """Simulate non-2xx responses from the API."""
 
     def test_health_500(self, httpx_mock) -> None:
-        from rova.errors import RouterAPIError
+        from r105.errors import RouterAPIError
         client = RouterClient(base_url="http://testserver:8010")
         httpx_mock.add_response(url="http://testserver:8010/health", status_code=500)
         with pytest.raises(RouterAPIError):
             client.health()
 
     def test_profiles_429(self, httpx_mock) -> None:
-        from rova.errors import RouterAPIError
+        from r105.errors import RouterAPIError
         client = RouterClient(base_url="http://testserver:8010")
         httpx_mock.add_response(url="http://testserver:8010/profiles", status_code=429)
         with pytest.raises(RouterAPIError):
             client.profiles()
 
     def test_send_503(self, httpx_mock, state: ChatState) -> None:
-        from rova.errors import RouterAPIError
+        from r105.errors import RouterAPIError
         client = RouterClient(base_url="http://testserver:8010")
         httpx_mock.add_response(
             url="http://testserver:8010/v1/chat/completions",
