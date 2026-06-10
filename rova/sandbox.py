@@ -167,17 +167,22 @@ class BwrapSandbox(SandboxBackend):
         except Exception:
             return False
 
-    @staticmethod
-    def _has_netns() -> bool:
+    _netns_available: bool | None = None
+
+    @classmethod
+    def _has_netns(cls) -> bool:
         """Check if network namespaces are supported in this environment."""
+        if cls._netns_available is not None:
+            return cls._netns_available
         try:
             result = subprocess.run(
                 ["bwrap", "--unshare-net", "--die-with-parent", "true"],
                 capture_output=True, text=True, timeout=5,
             )
-            return result.returncode == 0
+            cls._netns_available = result.returncode == 0
         except Exception:
-            return False
+            cls._netns_available = False
+        return cls._netns_available
 
     def execute(self, code: str, timeout: float = SANDBOX_TIMEOUT) -> subprocess.CompletedProcess[str]:
         tmpdir = tempfile.mkdtemp(prefix="rova_bwrap_")

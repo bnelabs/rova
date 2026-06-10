@@ -7,6 +7,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from rova.skills import skill_messages as _skill_messages  # canonical location
+
 DEFAULT_MODEL = "gemma-4-12b-it"
 DEFAULT_CONTEXT_TOKENS = 262144
 VALID_PROFILES = {
@@ -91,25 +93,3 @@ def estimate_tokens(text: str) -> int:
     # Apply BPE overhead multiplier (1.3x) plus indentation penalty
     estimated = int(base * 1.3) + indent_lines
     return max(1, estimated)
-
-
-def _skill_messages(state: ChatState) -> list[dict[str, str]]:
-    messages: list[dict[str, str]] = []
-    for name in state.active_skills:
-        params = state.skill_params.get(name)
-        text = _read_skill(state.skills_dir, name)
-        if text and params:
-            for key, value in params.items():
-                text = text.replace(f"{{{key}}}", value)
-        if text:
-            messages.append({"role": "system", "content": f"Active skill: {name}\n{text}"})
-    return messages
-
-
-def _read_skill(skills_dir: Path, name: str) -> str:
-    if "/" in name or "\\" in name or name.startswith("."):
-        return ""
-    path = skills_dir / f"{name}.md"
-    if not path.is_file():
-        return ""
-    return path.read_text(encoding="utf-8", errors="replace").strip()

@@ -180,12 +180,9 @@ class TestSandboxedPython:
 
     def test_timeout(self, tmp_path):
         # The sandbox CPU limit (25s) or subprocess timeout (30s) will kill this
-        import time
-        start = time.perf_counter()
         result = execute_python({"code": "while True: pass"}, tmp_path)
-        elapsed = time.perf_counter() - start
         # Either the sandbox kills it (stderr) or the timeout catches it
-        assert "timed out" in result.lower() or "killed" in result.lower() or elapsed > 0
+        assert "timed out" in result.lower() or "killed" in result.lower() or "error" in result.lower()
 
     def test_isolated_filesystem(self, tmp_path):
         """Sandboxed code should not be able to write to the real workspace."""

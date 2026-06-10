@@ -17,6 +17,7 @@ from rova.constants import (
     DEFAULT_HTTP_TIMEOUT,
 )
 from rova.errors import RouterAPIError
+from rova.skills import skill_messages
 from rova.state import (
     DEFAULT_MODEL,
     ChatResult,
@@ -33,18 +34,6 @@ def _metadata_from_state(state: ChatState) -> dict[str, Any]:
     if state.quality:
         metadata["quality"] = state.quality
     return metadata
-
-
-def _skill_messages(state: ChatState) -> list[dict[str, str]]:
-    from rova.skills import read_skill
-
-    messages: list[dict[str, str]] = []
-    for name in state.active_skills:
-        params = state.skill_params.get(name)
-        text = read_skill(state.skills_dir, name, params)
-        if text:
-            messages.append({"role": "system", "content": f"Active skill: {name}\n{text}"})
-    return messages
 
 
 def _extract_assistant_content(raw: dict[str, Any]) -> str:
@@ -76,7 +65,7 @@ def _maybe_float(value: Any) -> float | None:
 
 def _build_payload(message: str, state: ChatState, tools: list[dict[str, Any]] | None = None) -> dict[str, Any]:
     """Build the request payload for a chat completion."""
-    messages = [*_skill_messages(state), *state.history, {"role": "user", "content": message}]
+    messages = [*skill_messages(state), *state.history, {"role": "user", "content": message}]
     payload: dict[str, Any] = {
         "model": state.model if state.model else DEFAULT_MODEL,
         "messages": messages,
@@ -161,11 +150,12 @@ class RouterClient:
             timeout: Per-request timeout (falls back to ``self.timeout``).
         """
         req = getattr(httpx, method.lower())
-        response = req(
-            self._url(path),
-            json=json,
-            timeout=timeout if timeout is not None else self.timeout,
-        )
+        kwargs: dict[str, Any] = {
+            "timeout": timeout if timeout is not None else self.timeout,
+        }
+        if json is not None:
+            kwargs["json"] = json
+        response = req(self._url(path), **kwargs)
         return self._check_response(response)
 
     async def _async_request(
@@ -292,9 +282,13 @@ class RouterClient:
         started = time.perf_counter()
         raw = self._sync_request("POST", "/v1/chat/completions", json=payload).json()
         result = _parse_response(raw, started)
+        # Extend history only after successful parse
+        assistant_msg: dict[str, Any] = {"role": "assistant", "content": result.content}
+        if result.tool_calls:
+            assistant_msg["tool_calls"] = result.tool_calls
         state.history.extend([
             {"role": "user", "content": message},
-            {"role": "assistant", "content": result.content},
+            assistant_msg,
         ])
         return result
 
@@ -353,7 +347,7 @@ class RouterClient:
         receives content deltas as they arrive. Otherwise a standard (non-streaming)
         request is used.
         """
-        messages = [*_skill_messages(state), *state.history]
+        messages = [*skill_messages(state), *state.history]
         payload: dict[str, Any] = {
             "model": state.model if state.model else DEFAULT_MODEL,
             "messages": messages,

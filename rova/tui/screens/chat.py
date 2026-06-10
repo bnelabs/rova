@@ -15,7 +15,7 @@ from textual.screen import Screen
 from textual.widgets import Static
 
 from rova.client import RouterClient
-from rova.commands import _copy_to_clipboard, handle_slash_command
+from rova.commands import copy_to_clipboard, handle_slash_command
 from rova.constants import (
     AUTO_COMPACT_THRESHOLD_PCT,
     MAX_TOOL_LOOP_ITERATIONS,
@@ -90,7 +90,7 @@ class ChatScreen(Screen[None]):
         if not last_content:
             return
 
-        if _copy_to_clipboard(last_content):
+        if copy_to_clipboard(last_content):
             chat_view = self.query_one("#chat-view", ChatView)
             chat_view.add_system(f"[dim]Copied {len(last_content)} chars to clipboard[/dim]")
         else:
@@ -98,6 +98,22 @@ class ChatScreen(Screen[None]):
             chat_view.add_system("[dim]Clipboard unavailable (install xclip or wl-copy)[/dim]")
 
     # -- Input handling ---------------------------------------------------
+
+    async def _execute_slash_command(self, text: str, chat_view: ChatView) -> None:
+        """Execute a slash command, handle theme changes, and exit requests."""
+        old_theme = self.state.theme
+        result = await handle_slash_command(
+            text, self.state, self.client, self.workspace, http_client=self._http
+        )
+        if text in {"/exit", "/quit"}:
+            self.app.exit()
+            return
+        chat_view.add_system(result)
+        if self.state.theme != old_theme:
+            try:
+                self.app.apply_theme(self.state.theme)  # type: ignore[attr-defined]
+            except Exception:
+                pass
 
     async def on_chat_input_chat_submitted(self, event: ChatInput.ChatSubmitted) -> None:
         """Handle a normal (non-slash) message submission."""
@@ -108,19 +124,7 @@ class ChatScreen(Screen[None]):
         chat_view = self.query_one("#chat-view", ChatView)
 
         if text.startswith("/"):
-            _old_theme = self.state.theme
-            result = await handle_slash_command(
-                text, self.state, self.client, self.workspace, http_client=self._http
-            )
-            if text in {"/exit", "/quit"}:
-                self.app.exit()
-                return
-            chat_view.add_system(result)
-            if self.state.theme != _old_theme:
-                try:
-                    self.app.apply_theme(self.state.theme)  # type: ignore[attr-defined]
-                except Exception:
-                    pass
+            await self._execute_slash_command(text, chat_view)
         else:
             chat_view.add_user(text)
             self._send_message(text)
@@ -157,19 +161,7 @@ class ChatScreen(Screen[None]):
         palette.hide()
 
         if _is_exact_command(current_text):
-            _old_theme = self.state.theme
-            result = await handle_slash_command(
-                current_text, self.state, self.client, self.workspace, http_client=self._http
-            )
-            if current_text in {"/exit", "/quit"}:
-                self.app.exit()
-                return
-            chat_view.add_system(result)
-            if self.state.theme != _old_theme:
-                try:
-                    self.app.apply_theme(self.state.theme)  # type: ignore[attr-defined]
-                except Exception:
-                    pass
+            await self._execute_slash_command(current_text, chat_view)
             input_widget.clear()
             self._refresh_all()
             return

@@ -3,6 +3,10 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from rova.state import ChatState
 
 
 def list_skills(skills_dir: Path) -> list[str]:
@@ -23,3 +27,18 @@ def read_skill(skills_dir: Path, name: str, params: dict[str, str] | None = None
         for key, value in params.items():
             text = text.replace(f"{{{key}}}", value)
     return text
+
+
+def skill_messages(state: "ChatState") -> list[dict[str, str]]:
+    """Build system messages from active skills for injection into the conversation.
+
+    This is the canonical implementation. Both client.py and state.py use this
+    so skill-loading logic stays in one place.
+    """
+    messages: list[dict[str, str]] = []
+    for name in state.active_skills:
+        params = state.skill_params.get(name)
+        text = read_skill(state.skills_dir, name, params)
+        if text:
+            messages.append({"role": "system", "content": f"Active skill: {name}\n{text}"})
+    return messages

@@ -266,7 +266,11 @@ def execute_python(arguments: dict[str, Any], workspace_dir: Path) -> str:
 
     try:
         proc = get_sandbox().execute(code)
-        return proc.stdout if proc.returncode == 0 else proc.stderr
+        if proc.returncode == 0:
+            return proc.stdout
+        if proc.returncode < 0:
+            return f"error: process killed by signal {-proc.returncode}"
+        return proc.stderr or f"error: exit code {proc.returncode}"
     except subprocess.TimeoutExpired:
         return "error: execution timed out (30s)"
     except FileNotFoundError:

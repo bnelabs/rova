@@ -507,13 +507,13 @@ async def _cmd_copy(
     if not last_content:
         return "nothing to copy — no assistant message found"
 
-    success = _copy_to_clipboard(last_content)
+    success = copy_to_clipboard(last_content)
     if success:
         return f"copied {len(last_content)} chars to clipboard"
     return "clipboard unavailable (install xclip or wl-copy on Linux)"
 
 
-def _copy_to_clipboard(text: str) -> bool:
+def copy_to_clipboard(text: str) -> bool:
     """Copy *text* to the system clipboard. Returns True on success."""
     import shutil as _shutil
     import subprocess as _sp
