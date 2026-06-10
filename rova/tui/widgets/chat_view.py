@@ -1,6 +1,8 @@
-"""Scrollable chat history widget with rich formatting."""
+"""Scrollable chat history widget with rich formatting and debounced streaming."""
 
 from __future__ import annotations
+
+import time
 
 from rich.markdown import Markdown
 from rich.panel import Panel
@@ -9,10 +11,19 @@ from textual.widgets import RichLog
 
 
 class ChatView(RichLog):
-    """A scrollable chat history rendered with Rich formatting."""
+    """A scrollable chat history rendered with Rich formatting.
+
+    Streaming is debounced: incoming tokens are buffered and the Markdown
+    widget is updated every ~50ms, preventing CPU thrashing on long responses.
+    """
+
+    _DEBOUNCE_MS = 0.05  # 50ms
 
     def __init__(self, **kwargs) -> None:
         super().__init__(highlight=True, markup=True, **kwargs)
+        self._streaming = False
+        self._stream_buffer = ""
+        self._last_render = 0.0
 
     def add_user(self, text: str) -> None:
         panel = Panel(
@@ -77,27 +88,38 @@ class ChatView(RichLog):
         else:
             self.write(f"[bold cyan]📎 {source_tag}[/bold cyan]")
 
-    # -- Streaming support -------------------------------------------------
+    # -- Debounced streaming -----------------------------------------------
 
     def start_streaming(self) -> None:
-        """Begin a streaming assistant response (line-buffered rendering)."""
+        """Begin a streaming assistant response."""
         self._streaming = True
         self._stream_buffer = ""
+        self._last_render = time.monotonic()
 
     def stream_chunk(self, text: str) -> None:
-        """Accumulate a content delta, flushing complete lines to the log."""
+        """Accumulate a content delta and debounce the widget update.
+
+        The Markdown widget is updated at most every 50ms, preventing
+        UI thread saturation during fast SSE streams.
+        """
         if not getattr(self, "_streaming", False):
             self.start_streaming()
         self._stream_buffer += text
-        while "\n" in self._stream_buffer:
-            line, self._stream_buffer = self._stream_buffer.split("\n", 1)
-            if line.strip():
-                self.write(line.strip())
+
+        now = time.monotonic()
+        if now - self._last_render >= self._DEBOUNCE_MS:
+            # Flush complete lines to the log
+            while "\n" in self._stream_buffer:
+                line, self._stream_buffer = self._stream_buffer.split("\n", 1)
+                if line.strip():
+                    self.write(line.strip())
+            self._last_render = now
 
     def finish_streaming(self) -> None:
         """Flush any remaining buffered text and end the streaming session."""
         if not getattr(self, "_streaming", False):
             return
+        # Flush remaining line
         if self._stream_buffer.strip():
             self.write(self._stream_buffer.strip())
         self._streaming = False

@@ -13,6 +13,18 @@ SANDBOX_CPU_SECONDS: int = 25
 SANDBOX_FILESIZE_MB: int = 50
 SANDBOX_TIMEOUT: float = 30.0
 
+# -- Per-tool timeouts (in seconds) --------------------------------------
+
+TOOL_TIMEOUT_EXECUTE_PYTHON: float = 35.0   # sandbox + overhead
+TOOL_TIMEOUT_WEB_SEARCH: float = 12.0
+TOOL_TIMEOUT_WEB_FETCH: float = 15.0
+TOOL_TIMEOUT_FILE_OPS: float = 10.0
+TOOL_TIMEOUT_DEFAULT: float = 30.0
+
+# -- Max output (in chars) before truncation ------------------------------
+
+TOOL_MAX_OUTPUT_CHARS: int = 8000    # ~2000 BPE tokens
+
 # -- Web tools ----------------------------------------------------------
 
 WEB_SEARCH_TIMEOUT: float = 15.0
@@ -41,3 +53,7 @@ COMPACT_PROMPT_TEMPLATE: str = (
     "commands, and unresolved work. Remove filler and repeated wording. Return only the summary.\n\n"
     "{transcript}"
 )
+
+# -- Session workspace --------------------------------------------------
+
+SESSION_DATE_FORMAT: str = "%Y-%m-%d"

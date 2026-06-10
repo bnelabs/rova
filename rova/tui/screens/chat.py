@@ -20,6 +20,11 @@ from rova.constants import (
     AUTO_COMPACT_THRESHOLD_PCT,
     MAX_TOOL_LOOP_ITERATIONS,
     RECENT_CALL_TRACKING_SIZE,
+    TOOL_TIMEOUT_DEFAULT,
+    TOOL_TIMEOUT_EXECUTE_PYTHON,
+    TOOL_TIMEOUT_FILE_OPS,
+    TOOL_TIMEOUT_WEB_FETCH,
+    TOOL_TIMEOUT_WEB_SEARCH,
 )
 from rova.sessions import auto_save
 from rova.state import ChatState, token_usage
@@ -271,9 +276,34 @@ class ChatScreen(Screen[None]):
                 status_bar.set_busy(f"Executing {name}...")
                 chat_view.add_tool_status(f"Running {name}...")
 
-            # Phase 2: Execute all tools in parallel via thread pool
+            # Phase 2: Execute all tools in parallel via thread pool with timeouts
+            def _tool_timeout(name: str) -> float:
+                if name == "execute_python":
+                    return TOOL_TIMEOUT_EXECUTE_PYTHON
+                if name in ("web_search",):
+                    return TOOL_TIMEOUT_WEB_SEARCH
+                if name in ("web_fetch",):
+                    return TOOL_TIMEOUT_WEB_FETCH
+                if name in ("write_file", "read_file", "list_files"):
+                    return TOOL_TIMEOUT_FILE_OPS
+                return TOOL_TIMEOUT_DEFAULT
+
             async def _exec_one(tc: dict[str, Any]) -> dict[str, Any]:
-                return await asyncio.to_thread(execute_tool_call, tc, self.workspace)
+                func = tc.get("function", {})
+                tool_name = func.get("name", "unknown")
+                timeout = _tool_timeout(tool_name)
+                try:
+                    return await asyncio.wait_for(
+                        asyncio.to_thread(execute_tool_call, tc, self.workspace),
+                        timeout=timeout,
+                    )
+                except asyncio.TimeoutError:
+                    return {
+                        "role": "tool",
+                        "tool_call_id": tc.get("id", ""),
+                        "name": tool_name,
+                        "content": f"error: {tool_name} timed out after {timeout}s",
+                    }
 
             tool_results = await asyncio.gather(
                 *[_exec_one(tc) for tc, _name, _args_str in signatures],

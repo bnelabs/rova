@@ -73,6 +73,32 @@ def token_usage(state: ChatState) -> TokenUsage:
 
 
 def estimate_tokens(text: str) -> int:
+    """Estimate token count, using tiktoken if available, heuristic otherwise."""
+    return _tiktoken_count(text) if _tiktoken_available(text) else _heuristic_token_count(text)
+
+
+def _tiktoken_available(text: str) -> bool:
+    """Check if tiktoken can be used for this text."""
+    try:
+        return bool(__import__("tiktoken", fromlist=[""]))
+    except ImportError:
+        return False
+
+
+def _tiktoken_count(text: str) -> int:
+    """Count tokens using tiktoken with a fallback to heuristic."""
+    try:
+        import tiktoken
+        try:
+            enc = tiktoken.get_encoding("cl100k_base")
+        except Exception:
+            enc = tiktoken.get_encoding("gpt2")
+        return len(enc.encode(text, disallowed_special=()))
+    except Exception:
+        return _heuristic_token_count(text)
+
+
+def _heuristic_token_count(text: str) -> int:
     """Estimate token count using a heuristic calibrated for BPE tokenizers.
 
     Modern LLMs (Gemma, Llama, etc.) use sub-word tokenizers where:

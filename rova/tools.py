@@ -20,6 +20,7 @@ from urllib.parse import urlparse
 import httpx
 
 from rova.constants import (
+    TOOL_MAX_OUTPUT_CHARS,
     WEB_FETCH_MAX_CHARS,
     WEB_FETCH_TIMEOUT,
     WEB_SEARCH_MAX_RESULTS,
@@ -149,6 +150,24 @@ def _validate_tool_args(name: str, arguments: dict[str, Any]) -> str | None:
     return None
 
 
+# -- Workspace resolution with session isolation --------------------------
+
+
+def resolve_workspace(workspace_dir: Path, session_tag: str | None = None) -> Path:
+    """Resolve workspace directory, optionally creating a session-specific subdirectory.
+
+    When *session_tag* is provided (e.g., an ISO date or session name), tools
+    operate within ``workspace_dir / session_tag /`` to prevent file collisions
+    across sessions.
+    """
+    if session_tag:
+        tagged = workspace_dir / session_tag
+        tagged.mkdir(parents=True, exist_ok=True)
+        return tagged
+    workspace_dir.mkdir(parents=True, exist_ok=True)
+    return workspace_dir
+
+
 # -- Path validation (symlink-aware) ------------------------------------
 
 
@@ -181,17 +200,76 @@ def _validate_path(path: str, workspace_dir: Path) -> Path:
     return resolved
 
 
+# -- Output truncation -------------------------------------------------------
+
+
+def _truncate_output(text: str, max_chars: int = TOOL_MAX_OUTPUT_CHARS) -> str:
+    """Truncate tool output and append a summary note.
+
+    Prevents context blow-up from large outputs (e.g. a 50,000-row DataFrame).
+    """
+    if len(text) <= max_chars:
+        return text
+    return f"{text[:max_chars]}\n\n[TRUNCATED: output exceeds {max_chars} chars ({len(text)} total)]"
+
+
+def _head_tail_truncate(text: str, max_chars: int = TOOL_MAX_OUTPUT_CHARS, tail_ratio: float = 0.3) -> str:
+    """Show head + tail of a large output, dropping the middle.
+
+    Useful for long execution results where the head and tail are most informative.
+    """
+    if len(text) <= max_chars:
+        return text
+    tail_chars = int(max_chars * tail_ratio)
+    head_chars = max_chars - tail_chars
+    return (
+        f"{text[:head_chars]}\n\n[... {len(text) - head_chars - tail_chars} chars omitted ...]\n\n"
+        f"{text[-tail_chars:]}\n\n[TRUNCATED: output exceeds {max_chars} chars ({len(text)} total)]"
+    )
+
+
+# -- Tool result memoization (in-memory, per-session) -----------------------
+
+
+_tool_cache: dict[tuple[str, str], str] = {}
+
+
+def _memoize_tool(name: str, args_str: str, result: str) -> str:
+    """Cache a tool result keyed by (tool_name, args). Returns the result."""
+    _tool_cache[(name, args_str)] = result
+    return result
+
+
+def _cached_result(name: str, args_str: str) -> str | None:
+    """Return cached result if available, None otherwise."""
+    return _tool_cache.get((name, args_str))
+
+
+def _cache_clear() -> None:
+    _tool_cache.clear()
+
+
+# -- Tool dispatch -----------------------------------------------------------
+
+
 def execute_tool_call(
     call: dict[str, Any],
     workspace_dir: Path,
+    *,
+    use_cache: bool = True,
 ) -> dict[str, Any]:
-    """Execute a single tool call locally and return a tool result message."""
+    """Execute a single tool call locally and return a tool result message.
+
+    When *use_cache* is True, memoization prevents duplicate calls from
+    re-running expensive operations (web_search, web_fetch, execute_python).
+    """
     function = call.get("function") or {}
     name = str(function.get("name", ""))
     raw_arguments = function.get("arguments") or "{}"
     arguments = (
         json.loads(raw_arguments) if isinstance(raw_arguments, str) else raw_arguments
     )
+    args_str = json.dumps(arguments, sort_keys=True)
 
     # Validate arguments before dispatching
     error = _validate_tool_args(name, arguments)
@@ -202,6 +280,17 @@ def execute_tool_call(
             "name": name,
             "content": f"validation error: {error}",
         }
+
+    # Check cache for pure tools (not write_file)
+    if use_cache and name != "write_file":
+        cached = _cached_result(name, args_str)
+        if cached is not None:
+            return {
+                "role": "tool",
+                "tool_call_id": call.get("id", ""),
+                "name": name,
+                "content": f"{cached}\n\n[SYSTEM NOTE: This result was cached from a previous identical call.]",
+            }
 
     if name == "execute_python":
         result = execute_python(arguments, workspace_dir, profile=profile_for_tool(name))
@@ -234,11 +323,16 @@ def execute_tool_call(
             else:
                 result = f"unknown tool: {name}"
 
+    # Apply truncation to large outputs (execute_python, read_file, web_search, web_fetch)
+    content = result if isinstance(result, str) else json.dumps(result, sort_keys=True)
+    if name in ("execute_python", "read_file", "web_search", "web_fetch"):
+        content = _head_tail_truncate(content)
+        content = _memoize_tool(name, args_str, content)
     return {
         "role": "tool",
         "tool_call_id": call.get("id", ""),
         "name": name,
-        "content": result if isinstance(result, str) else json.dumps(result, sort_keys=True),
+        "content": content,
     }
 
 
