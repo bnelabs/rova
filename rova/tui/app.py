@@ -7,7 +7,7 @@ from pathlib import Path
 from textual.app import App
 from textual.binding import Binding
 
-from rova.client import RouterClient
+from rova.client import RouterClient, BaseClient
 from rova.state import ChatState
 from rova.tui.screens.chat import ChatScreen
 
@@ -36,7 +36,7 @@ class RovaApp(App):
 
     def __init__(
         self,
-        client: RouterClient,
+        client: BaseClient | RouterClient,
         state: ChatState,
         workspace_dir: Path,
     ) -> None:

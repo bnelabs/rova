@@ -14,7 +14,7 @@ from textual.containers import Horizontal, Vertical
 from textual.screen import Screen
 from textual.widgets import Static
 
-from rova.client import RouterClient
+from rova.client import BaseClient, RouterClient
 from rova.commands import copy_to_clipboard, handle_slash_command
 from rova.constants import (
     AUTO_COMPACT_THRESHOLD_PCT,
@@ -54,7 +54,7 @@ class ChatScreen(Screen[None]):
 
     def __init__(
         self,
-        client: RouterClient,
+        client: BaseClient | RouterClient,
         state: ChatState,
         workspace_dir: Path,
     ) -> None:

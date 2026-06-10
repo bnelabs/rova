@@ -83,11 +83,12 @@ class TestBuildPayload:
         payload = _build_payload("hello", chat_state)
         assert payload["response_format"] == {"type": "json_object"}
 
-    def test_payload_with_metadata(self, chat_state: ChatState) -> None:
+    def test_payload_metadata_not_injected_by_default(self, chat_state: ChatState) -> None:
+        """Metadata is a RouterClient concern; _build_payload is backend-agnostic."""
         chat_state.profile = "coding"
         chat_state.quality = "best"
         payload = _build_payload("hello", chat_state)
-        assert payload["metadata"] == {"profile": "coding", "quality": "best"}
+        assert "metadata" not in payload
 
     def test_payload_includes_history(self, chat_state: ChatState) -> None:
         chat_state.history = [{"role": "user", "content": "prior"}]

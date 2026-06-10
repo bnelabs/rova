@@ -344,6 +344,8 @@ async def _cmd_profiles(
 ) -> str:
     if client is None:
         return "client unavailable"
+    if not hasattr(client, "async_profiles"):
+        return "profiles are only available with llama-router backend (--backend router)"
     try:
         payload = await client.async_profiles(client=http_client)
         return "\n".join(sorted((payload.get("profiles") or {}).keys()))
@@ -606,6 +608,12 @@ async def _handle_rag_command(
     if not args:
         state.rag = not bool(state.rag)
         return f"rag={state.rag}"
+
+    # Check if the backend supports RAG
+    if not hasattr(client, "async_ingest"):
+        if args[0] in ("ingest", "search", "list", "delete", "update"):
+            return "RAG is only available with llama-router backend (--backend router)"
+
     action = args[0]
     if action in {"on", "true", "1", "yes"}:
         state.rag = True

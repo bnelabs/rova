@@ -11,7 +11,7 @@ from typing import Any
 import httpx
 
 from rova import __version__
-from rova.client import RouterClient
+from rova.client import BaseClient, create_client
 from rova.commands import _format_ingest, _format_search, _split_paths_and_urls
 from rova.config import ensure_config, load_state_overrides
 from rova.mcp_client import load_mcp_servers
@@ -70,6 +70,10 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--model", default=None, help="Model name to use for chat requests",
+    )
+    parser.add_argument(
+        "--backend", default=None, choices=["direct", "router"],
+        help="Backend type (router for profiles+RAG, direct for any OpenAI API)",
     )
     parser.add_argument(
         "--version", action="version", version=f"rova {__version__}"
@@ -142,10 +146,12 @@ def main(argv: list[str] | None = None) -> int:
         for err in mcp_errors:
             print(f"warning: {err}", file=sys.stderr)
 
-    client = RouterClient(url)
     workspace_dir = Path(workspace_str).expanduser().resolve()
     skills_dir = Path(skills_str).expanduser().resolve()
     workspace_dir.mkdir(parents=True, exist_ok=True)
+
+    # Create the API client (auto-detects router vs direct)
+    client = create_client(base_url=url, backend=args.backend)
 
     # Load state-level overrides from config, then apply CLI args on top
     state_overrides = load_state_overrides()
@@ -180,6 +186,9 @@ def main(argv: list[str] | None = None) -> int:
             print(json.dumps(client.health(), indent=2, sort_keys=True))
             return 0
         if args.command == "profiles":
+            if not hasattr(client, "profiles"):
+                print("profiles are only available with llama-router backend (--backend router)", file=sys.stderr)
+                return 1
             payload = client.profiles()
             if args.raw:
                 print(json.dumps(payload, indent=2, sort_keys=True))
@@ -194,11 +203,17 @@ def main(argv: list[str] | None = None) -> int:
                     )
             return 0
         if args.command == "ingest":
+            if not hasattr(client, "ingest"):
+                print("RAG commands are only available with llama-router backend (--backend router)", file=sys.stderr)
+                return 1
             paths, urls = _split_paths_and_urls(args.items)
             payload = client.ingest(paths=paths, urls=urls)
             print(_format_ingest(payload))
             return 0
         if args.command == "search":
+            if not hasattr(client, "search"):
+                print("RAG commands are only available with llama-router backend (--backend router)", file=sys.stderr)
+                return 1
             payload = client.search(" ".join(args.query), top_k=args.top_k)
             print(_format_search(payload))
             return 0
@@ -208,7 +223,7 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
 
-def _run_tui(client: RouterClient, state: ChatState, workspace_dir: Path) -> int:
+def _run_tui(client: BaseClient, state: ChatState, workspace_dir: Path) -> int:
     from rova.tui.app import run_app
 
     run_app(client, state, workspace_dir)
