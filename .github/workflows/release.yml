@@ -7,7 +7,6 @@ on:
 
 permissions:
   contents: write
-  id-token: write
 
 jobs:
   pypi:
@@ -22,9 +21,11 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install build twine && python -m build && twine check dist/*
-      - uses: pypa/gh-action-pypi-publish@release/v1
-        with:
-          skip_existing: true
+      - run: |
+          pip install twine && twine upload dist/* -u __token__ -p ${{ secrets.PYPI_TOKEN }}
+        env:
+          TWINE_USERNAME: __token__
+          TWINE_PASSWORD: ${{ secrets.PYPI_TOKEN }}
 
   binary-linux:
     name: Build Linux binary
