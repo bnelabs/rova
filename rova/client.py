@@ -483,7 +483,7 @@ class DirectClient(BaseClient):
     ) -> ChatResult:
         payload = _build_payload(message, state, tools)
         started = time.perf_counter()
-        raw = self._sync_request("POST", "/chat/completions", json=payload).json()
+        raw = self._sync_request("POST", "/v1/chat/completions", json=payload).json()
         result = _parse_response(raw, started)
         assistant_msg: dict[str, Any] = {"role": "assistant", "content": result.content}
         if result.tool_calls:
@@ -506,7 +506,7 @@ class DirectClient(BaseClient):
         payload = _build_payload(message, state, tools)
         started = time.perf_counter()
         response = await self._async_request(
-            "POST", "/chat/completions", client=client, json=payload
+            "POST", "/v1/chat/completions", client=client, json=payload
         )
         response.raise_for_status()
         raw = response.json()
@@ -546,7 +546,7 @@ class DirectClient(BaseClient):
         else:
             started = time.perf_counter()
             response = await self._async_request(
-                "POST", "/chat/completions", client=client, json=payload
+                "POST", "/v1/chat/completions", client=client, json=payload
             )
             response.raise_for_status()
             raw = response.json()
@@ -596,12 +596,12 @@ class DirectClient(BaseClient):
             return {"ok": False, "error": str(exc)}
 
     def list_models(self) -> dict[str, Any]:
-        response = self._sync_request("GET", "/models", timeout=10.0)
+        response = self._sync_request("GET", "/v1/models", timeout=10.0)
         response.raise_for_status()
         return response.json()
 
     async def async_list_models(self, client: httpx.AsyncClient | None = None) -> dict[str, Any]:
-        response = await self._async_request("GET", "/models", client=client, timeout=10.0)
+        response = await self._async_request("GET", "/v1/models", client=client, timeout=10.0)
         response.raise_for_status()
         return response.json()
 
