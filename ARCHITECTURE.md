@@ -1,13 +1,13 @@
-# Rova Architecture
+# r105 Architecture
 
 ## System Overview
 
-Rova is a rich terminal frontend for [llama-router](https://github.com/komedi/llama-router), built with the [Textual](https://textual.textualize.io/) TUI framework. It provides an interactive chat interface with streaming responses, local tool execution, slash commands, and RAG management.
+r105 is a rich terminal AI assistant built with the [Textual](https://textual.textualize.io/) TUI framework. It connects to any OpenAI-compatible API (OpenAI, Ollama, vLLM, Groq, llama-router, etc.) and provides an interactive chat interface with streaming responses, local tool execution, slash commands, and RAG management.
 
 ```
 ┌──────────────┐     HTTP/SSE      ┌──────────────┐     HTTP      ┌──────────────┐
 │              │ ◄──────────────► │              │ ◄───────────► │              │
-│   Rova TUI   │    (REST + SSE)   │ llama-router │   (OpenAI API) │ llama-server │
+│   r105 TUI   │    (REST + SSE)   │ llama-router │   (OpenAI API) │ llama-server │
 │  (Textual)   │                   │  (FastAPI)   │                │  (llama.cpp) │
 │              │                   │              │                │              │
 └──────┬───────┘                   └──────────────┘                └──────────────┘
@@ -25,7 +25,7 @@ Rova is a rich terminal frontend for [llama-router](https://github.com/komedi/ll
 
 | Component | Role |
 |-----------|------|
-| **Rova TUI** | Textual app: chat screen, command palette, file explorer, streaming display |
+| **r105 TUI** | Textual app: chat screen, command palette, file explorer, streaming display |
 | **RouterClient** | HTTP client: sends chat requests, receives SSE streams, manages history |
 | **Tool Runner** | Executes LLM-requested tools (Python, file I/O, web search, etc.) in sandboxed subprocesses |
 | **llama-router** | FastAPI middleware: request classification, profile selection, RAG, response critique |
@@ -95,9 +95,9 @@ RouterClient._stream_sse()
 ## Component Tree (TUI)
 
 ```
-RovaApp (App)
+R105App (App)
 └── ChatScreen (Screen)
-    ├── Static (#rova-header)          — model, profile, context usage
+    ├── Static (#r105-header)          — model, profile, context usage
     ├── Horizontal (#main-content)
     │   ├── ChatView (#chat-view)      — RichLog: chat messages, streaming
     │   └── Vertical (#right-pane)
@@ -185,7 +185,7 @@ result = await self.client.async_send("Tool results received. Continue.", ...)
 ## Configuration Flow
 
 ```
-~/.config/rova/config.json          CLI arguments (--profile, --theme, etc.)
+~/.config/r105/config.json          CLI arguments (--profile, --theme, etc.)
          │                                    │
          ▼                                    │
   ensure_config()                             │
@@ -208,8 +208,8 @@ result = await self.client.async_send("Tool results received. Continue.", ...)
 ```json
 {
   "theme": "dracula",
-  "workspace": "/home/user/rova-workspace",
-  "skills_dir": "/home/user/.config/rova/skills",
+  "workspace": "/home/user/r105-workspace",
+  "skills_dir": "/home/user/.config/r105/skills",
   "quality": "best",
   "auto_compact": false,
   "url": "http://127.0.0.1:8010"
@@ -218,14 +218,14 @@ result = await self.client.async_send("Tool results received. Continue.", ...)
 
 ## Skills System
 
-Skills are markdown files in `~/.config/rova/skills/` that are injected as system messages into the conversation. They support `{param}` placeholder substitution.
+Skills are markdown files in `~/.config/r105/skills/` that are injected as system messages into the conversation. They support `{param}` placeholder substitution.
 
 ```
 /skill use code-reviewer language=python style=strict
 ```
 
 ```
-~/.config/rova/skills/code-reviewer.md:
+~/.config/r105/skills/code-reviewer.md:
   You are a {language} code reviewer.
   Apply {style} standards.
 ```
@@ -237,26 +237,26 @@ You are a python code reviewer.
 Apply strict standards.
 ```
 
-Skills are read by `rova/skills.py::read_skill()` and converted to system messages by `rova/client.py::_skill_messages()`.
+Skills are read by `r105/skills.py::read_skill()` and converted to system messages by `r105/client.py::_skill_messages()`.
 
 ## Tools
 
-Tools are defined in `rova/tools.py` as a `TOOL_DEFINITIONS` list (JSON Schema for the LLM) paired with handler functions dispatched by `execute_tool_call()`. Tool execution runs in a thread pool via `asyncio.to_thread()`. The Python sandbox uses `resource.setrlimit()` for basic resource limits (256MB memory, 25s CPU) with a stripped environment.
+Tools are defined in `r105/tools.py` as a `TOOL_DEFINITIONS` list (JSON Schema for the LLM) paired with handler functions dispatched by `execute_tool_call()`. Tool execution runs in a thread pool via `asyncio.to_thread()`. The Python sandbox uses `resource.setrlimit()` for basic resource limits (256MB memory, 25s CPU) with a stripped environment.
 
 ## Directory Layout
 
 ```
-rova/
+r105/
 ├── cli.py              # CLI entry point (argparse)
 ├── client.py           # RouterClient — sync + async HTTP
 ├── commands.py         # Slash command handlers
-├── config.py           # Config file read/write (~/.config/rova/config.json)
+├── config.py           # Config file read/write (~/.config/r105/config.json)
 ├── skills.py           # Skill file loading
 ├── state.py            # ChatState, ChatResult, TokenUsage
 ├── tools.py            # Tool definitions + execution
-├── themes/             # TCSS theme files (rova, dracula, solarized-dark, high-contrast)
+├── themes/             # TCSS theme files (r105, dracula, solarized-dark, high-contrast)
 └── tui/
-    ├── app.py          # RovaApp (Textual App)
+    ├── app.py          # r105App (Textual App)
     ├── screens/
     │   └── chat.py     # ChatScreen — main interactive screen
     └── widgets/

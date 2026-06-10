@@ -1,23 +1,23 @@
 {
   "$schema": "https://raw.githubusercontent.com/lukesampson/scoop/master/schema.json",
-  "homepage": "https://github.com/bnelabs/rova",
-  "description": "Rova — Rapid On-demand Virtual Assistant: rich terminal frontend for llama-router",
+  "homepage": "https://github.com/bnelabs/r105",
+  "description": "r105 — Beyond the prompt. Rich terminal AI assistant for any OpenAI-compatible backend.",
   "license": "MIT",
   "version": "0.3.0",
   "architecture": {
     "64bit": {
-      "url": "https://github.com/bnelabs/rova/releases/download/v$version/rova-windows-x64.exe#/rova.exe",
+      "url": "https://github.com/bnelabs/r105/releases/download/v$version/r105-windows-x64.exe#/r105.exe",
       "hash": ""
     }
   },
-  "bin": "rova.exe",
+  "bin": "r105.exe",
   "checkver": {
-    "github": "https://github.com/bnelabs/rova"
+    "github": "https://github.com/bnelabs/r105"
   },
   "autoupdate": {
     "architecture": {
       "64bit": {
-        "url": "https://github.com/bnelabs/rova/releases/download/v$version/rova-windows-x64.exe#/rova.exe"
+        "url": "https://github.com/bnelabs/r105/releases/download/v$version/r105-windows-x64.exe#/r105.exe"
       }
     }
   }

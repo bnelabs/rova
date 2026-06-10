@@ -1,15 +1,11 @@
-<p align="center">
-  <img src="ROVA.png" alt="Rova" width="600">
-</p>
+# r105 — Beyond the prompt.
 
-# Rova — Rapid On-demand Virtual Assistant
+r105 is a rich terminal AI assistant built on [Textual](https://textual.textualize.io/). It connects to any OpenAI-compatible API (OpenAI, Ollama, vLLM, Groq, llama-router, etc.) and provides an interactive chat TUI with streaming SSE responses, a slash-command system, fuzzy command palette, local tool execution, secure sandboxing, MCP integration, plugin extensibility, session persistence, and multiple themes.
 
-Rova is a rich terminal frontend for [llama-router](https://github.com/komedi/llama-router), built on [Textual](https://textual.textualize.io/). It provides an interactive chat TUI with streaming SSE responses, a slash-command system, fuzzy command palette, local tool execution, secure sandboxing, MCP integration, plugin extensibility, session persistence, and multiple themes.
-
-Rova can also connect to any OpenAI-compatible API (Ollama, vLLM, Groq, etc.) when you don't need llama-router's profile routing or RAG features.
+When paired with [llama-router](https://github.com/komedi/llama-router), r105 gains task profiles, RAG retrieval, and metadata-aware routing — but no backend is required. It works out of the box with any OpenAI-compatible endpoint.
 
 <p align="center">
-  <img src="https://img.shields.io/pypi/v/rova?color=cba6f7" alt="PyPI">
+  <img src="https://img.shields.io/pypi/v/r105?color=cba6f7" alt="PyPI">
   <img src="https://img.shields.io/badge/python-3.12%20%7C%203.13-blue" alt="Python">
   <img src="https://img.shields.io/badge/tests-165%20passed-brightgreen" alt="Tests">
   <img src="https://img.shields.io/badge/license-MIT-green" alt="License">
@@ -51,7 +47,7 @@ Rova can also connect to any OpenAI-compatible API (Ollama, vLLM, Groq, etc.) wh
 ## Prerequisites
 
 - **Python 3.12+**
-- **llama-router** running on `http://127.0.0.1:8010` (or set `ROVA_URL` / `--url`)
+- **llama-router** running on `http://127.0.0.1:8010` (or set `R105_URL` / `--url`)
 
 ---
 
@@ -60,44 +56,44 @@ Rova can also connect to any OpenAI-compatible API (Ollama, vLLM, Groq, etc.) wh
 ### pipx (recommended)
 
 ```sh
-pipx install rova
+pipx install r105
 ```
 
 ### Homebrew (macOS / Linux)
 
 ```sh
-brew install bnelabs/tap/rova
+brew install bnelabs/tap/r105
 ```
 
 ### Standalone binary
 
-Pre-built single-file executables are attached to [GitHub Releases](https://github.com/bnelabs/rova/releases) for Linux and macOS. Download, `chmod +x`, and run — no Python install needed.
+Pre-built single-file executables are attached to [GitHub Releases](https://github.com/bnelabs/r105/releases) for Linux and macOS. Download, `chmod +x`, and run — no Python install needed.
 
 ### From source
 
 ```sh
-git clone https://github.com/bnelabs/rova.git
-cd rova
+git clone https://github.com/bnelabs/r105.git.git
+cd r105
 python -m venv .venv
 .venv/bin/pip install -e .
-ln -sf "$(pwd)/bin/rova" ~/.local/bin/rova
+ln -sf "$(pwd)/bin/r105" ~/.local/bin/r105
 ```
 
 ### Docker
 
 ```sh
-docker build -t rova .
+docker build -t r105 .
 docker run -it --rm \
-  -v ~/.config/rova:/root/.config/rova \
-  -v ~/rova-workspace:/root/rova-workspace \
-  rova chat
+  -v ~/.config/r105:/root/.config/r105 \
+  -v ~/r105-workspace:/root/r105-workspace \
+  r105 chat
 ```
 
 For a quick-start stack with llama-router, use the included `docker-compose.yml`:
 
 ```sh
 docker compose up -d llama-router
-docker compose run rova chat
+docker compose run r105 chat
 ```
 
 ---
@@ -106,46 +102,46 @@ docker compose run rova chat
 
 ```sh
 # Launch the TUI (requires llama-router on http://127.0.0.1:8010)
-rova chat
+`r105 chat
 
 # One-shot: ask a question and get a response without the TUI
-rova send "explain quicksort in 3 sentences"
+`r105 send "explain quicksort in 3 sentences"
 
 # Connect to a different router or any OpenAI-compatible API
-rova --url http://my-router:8010 chat
-OPENAI_API_KEY=sk-... rova --url https://api.openai.com/v1 chat
+`r105 --url http://my-router:8010 chat
+OPENAI_API_KEY=sk-... r105 --url https://api.openai.com/v1 chat
 ```
 
 ---
 
 ## CLI Usage
 
-Rova supports both one-shot prompts and management commands at the command line.
+r105 supports both one-shot prompts and management commands at the command line.
 
 ```sh
 # Interactive chat (default, opens TUI)
-rova chat
+`r105 chat
 
 # One-shot prompt
-rova send "explain quicksort in 3 sentences"
+`r105 send "explain quicksort in 3 sentences"
 
 # Check router health
-rova health
+`r105 health
 
 # List available task profiles
-rova profiles
+`r105 profiles
 
 # Ingest documents for RAG
-rova ingest /path/to/docs https://example.com/page
+`r105 ingest /path/to/docs https://example.com/page
 
 # Search the RAG index
-rova search "query terms"
+`r105 search "query terms"
 
 # Load a saved session on startup
-rova --session my-session chat
+`r105 --session my-session chat
 
 # Version info
-rova --version
+`r105 --version
 ```
 
 ### CLI Flags
@@ -153,9 +149,9 @@ rova --version
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--url` | `http://127.0.0.1:8010` | Router or API base URL |
-| `--workspace` | `~/rova-workspace` | Workspace directory for file tools |
+| `--workspace` | `~/r105-workspace` | Workspace directory for file tools |
 | `--skills-dir` | `./skills` | Directory containing skill `.md` files |
-| `--plugins-dir` | `~/.config/rova/plugins` | Directory for custom tool plugins |
+| `--plugins-dir` | `~/.config/r105/plugins` | Directory for custom tool plugins |
 | `--profile` | auto | Force a router task profile |
 | `--model` | auto | Override model selection |
 | `--quality` | auto | Quality hint: `fast`, `balanced`, or `best` |
@@ -170,9 +166,9 @@ rova --version
 
 ## Backends
 
-Rova auto-detects the best backend:
+r105 auto-detects the best backend:
 
-1. **`ROVA_URL` set → llama-router** — full profile routing, RAG, model selection
+1. **`R105_URL` set → llama-router** — full profile routing, RAG, model selection
 2. **`OPENAI_API_KEY` set → direct** — any OpenAI-compatible API (OpenAI, Ollama, vLLM, Groq)
 3. **Otherwise** — checks local Ollama, falls back to direct
 
@@ -268,7 +264,7 @@ Press `/` to open the interactive command palette with:
 
 | Command | Description |
 |---------|-------------|
-| `/session save <name>` | Save current conversation to `~/.config/rova/sessions/` |
+| `/session save <name>` | Save current conversation to `~/.config/r105/sessions/` |
 | `/session load <name>` | Load and restore a previously saved session |
 | `/session list` | List all saved sessions with previews and timestamps |
 | `/session delete <name>` | Delete a saved session |
@@ -291,11 +287,11 @@ Press `/` to open the interactive command palette with:
 |---------|-------------|
 | `/workspace` | Show workspace directory and list generated files |
 | `/preview <filename>` | Preview a workspace file's contents |
-| `/theme <name>` | Switch theme: `rova`, `dracula`, `solarized-dark`, `high-contrast` |
+| `/theme <name>` | Switch theme: `r105`, `dracula`, `solarized-dark`, `high-contrast` |
 | `/health` | Check llama-router and upstream model health |
 | `/profiles` | List available router task profiles |
 | `/help` | Show the full command reference |
-| `/exit` | Quit Rova |
+| `/exit` | Quit r105 |
 
 ### Keybindings
 
@@ -323,7 +319,7 @@ Press `/` to open the interactive command palette with:
 
 ## Built-in Tools
 
-Rova provides 9 local tools the LLM can call. All tools are validated before execution with argument size caps, SSRF prevention, and path traversal hardening. `execute_python` runs in a sandboxed environment with no network or filesystem access.
+r105 provides 9 local tools the LLM can call. All tools are validated before execution with argument size caps, SSRF prevention, and path traversal hardening. `execute_python` runs in a sandboxed environment with no network or filesystem access.
 
 | Tool | Description | Sandbox Profile |
 |------|-------------|----------------|
@@ -356,7 +352,7 @@ When `write_file` modifies an existing file, it generates a unified diff. The TU
 
 ## Sandbox & Security
 
-Rova implements layered security for code execution. The backend is auto-detected: `nsjail` > `bwrap` > `rlimit` > `none` (Windows fallback).
+r105 implements layered security for code execution. The backend is auto-detected: `nsjail` > `bwrap` > `rlimit` > `none` (Windows fallback).
 
 ### Sandbox Backends
 
@@ -389,7 +385,7 @@ Each tool gets a sandbox profile that specifies exactly what it needs:
 
 ## Skills
 
-Skills are reusable Markdown prompt templates stored in `~/.config/rova/skills/`. They support `{param}` placeholder substitution for dynamic content injection.
+Skills are reusable Markdown prompt templates stored in `~/.config/r105/skills/`. They support `{param}` placeholder substitution for dynamic content injection.
 
 Skills appear as system messages in the LLM context, persisting across `/clear` but not across sessions (re-activate on each launch).
 
@@ -405,7 +401,7 @@ Skills appear as system messages in the LLM context, persisting across `/clear` 
 ### Creating a Skill
 
 ```markdown
-<!-- ~/.config/rova/skills/web-researcher.md -->
+<!-- ~/.config/r105/skills/web-researcher.md -->
 When answering questions, follow this process:
 1. Break the question into search queries
 2. Use web_search for each query
@@ -438,9 +434,9 @@ Review skill content before activation if it comes from an untrusted source.
 
 ## Plugins
 
-Custom tools can be loaded from Python files in `~/.config/rova/plugins/`. Each file exposes a `register(registry)` function that adds tools via `registry.add_tool()`.
+Custom tools can be loaded from Python files in `~/.config/r105/plugins/`. Each file exposes a `register(registry)` function that adds tools via `registry.add_tool()`.
 
-**Example plugin** (`~/.config/rova/plugins/hello.py`):
+**Example plugin** (`~/.config/r105/plugins/hello.py`):
 
 ```python
 def register(registry):
@@ -463,11 +459,11 @@ See [docs/TOOLS.md](docs/TOOLS.md) for the full API reference.
 
 ## MCP — Model Context Protocol
 
-Rova can connect to external MCP servers (stdio or SSE transport) to access community-built tools without changing Rova's code.
+r105 can connect to external MCP servers (stdio or SSE transport) to access community-built tools without changing r105's code.
 
 ### Configuration
 
-Configure servers in `~/.config/rova/config.json`:
+Configure servers in `~/.config/r105/config.json`:
 
 ```json
 {
@@ -500,11 +496,11 @@ MCP tools are namespaced as `mcp_<server>_<tool>` in the LLM's tool definitions,
 
 ## Sessions & Export
 
-Conversations can be saved, loaded, and exported in multiple formats. Rova also **auto-saves on exit** as `__autosave__`.
+Conversations can be saved, loaded, and exported in multiple formats. r105 also **auto-saves on exit** as `__autosave__`.
 
 ### Session Storage
 
-Sessions are stored as JSON files in `~/.config/rova/sessions/`. Each file contains:
+Sessions are stored as JSON files in `~/.config/r105/sessions/`. Each file contains:
 
 - **Conversation history** (all user, assistant, and tool messages)
 - **Session state** (profile, RAG, quality, skills, and parameters)
@@ -522,7 +518,7 @@ Sessions are stored as JSON files in `~/.config/rova/sessions/`. Each file conta
 
 ## RAG — Retrieval-Augmented Generation
 
-Rova integrates with llama-router's RAG pipeline. When RAG is enabled, router responses include source citations from your ingested documents.
+r105 integrates with llama-router's RAG pipeline. When RAG is enabled, router responses include source citations from your ingested documents.
 
 ### Workflow
 
@@ -546,18 +542,18 @@ Four themes are included. Switch at runtime with `/theme <name>`:
 
 | Theme | Accent | Style |
 |-------|--------|-------|
-| `rova` (default) | `#cba6f7` mauve | Catppuccin Mocha |
+| `r105` (default) | `#cba6f7` mauve | Catppuccin Mocha |
 | `dracula` | `#bd93f9` purple | Dracula |
 | `solarized-dark` | `#268bd2` blue | Solarized Dark |
 | `high-contrast` | `#ffff00` yellow | Accessibility-focused |
 
-Themes are defined as Textual CSS files in `rova/themes/`. The selected theme persists in `~/.config/rova/state.json`.
+Themes are defined as Textual CSS files in `r105/themes/`. The selected theme persists in `~/.config/r105/state.json`.
 
 ---
 
 ## Auto-Compaction
 
-When conversation context approaches 80% of the model's capacity, Rova can automatically summarize earlier messages to free space. This is controlled by:
+When conversation context approaches 80% of the model's capacity, r105 can automatically summarize earlier messages to free space. This is controlled by:
 
 - **`/autocompact on|off`** — toggle from within the TUI
 - **`auto_compact` field** in `config.json` — persistent default
@@ -568,10 +564,10 @@ Compaction uses the `complex_reasoning` profile and keeps the most recent 30% of
 
 ## Configuration
 
-Rova stores configuration in `~/.config/rova/`:
+r105 stores configuration in `~/.config/r105/`:
 
 ```
-~/.config/rova/
+~/.config/r105/
 ├── config.json          # MCP servers, model, sandbox backend, defaults
 ├── state.json           # Persistent TUI state (theme, profile, quality)
 ├── sessions/            # Saved conversation sessions (JSON)
@@ -588,7 +584,7 @@ Rova stores configuration in `~/.config/rova/`:
   "model": "gemma-4-12b-it",
   "sandbox_backend": "bwrap",
   "auto_compact": true,
-  "theme": "rova",
+  "theme": "r105",
   "mcp_servers": [
     {
       "name": "github",
@@ -605,7 +601,7 @@ CLI arguments override config file values, which override built-in defaults. The
 
 ### Structured Logging
 
-Debug logs are written to `~/.local/state/rova/log.jsonl` in JSON Lines format. Set `ROVA_LOG_LEVEL=DEBUG` for verbose output.
+Debug logs are written to `~/.local/state/r105/log.jsonl` in JSON Lines format. Set `R105_LOG_LEVEL=DEBUG` for verbose output.
 
 ---
 
@@ -614,23 +610,23 @@ Debug logs are written to `~/.local/state/rova/log.jsonl` in JSON Lines format. 
 ### Standalone
 
 ```sh
-docker build -t rova .
+docker build -t r105 .
 docker run -it --rm \
-  -v ~/.config/rova:/root/.config/rova \
-  -v ~/rova-workspace:/root/rova-workspace \
-  rova chat
+  -v ~/.config/r105:/root/.config/r105 \
+  -v ~/r105-workspace:/root/r105-workspace \
+  r105 chat
 ```
 
 ### Quick-start stack with llama-router
 
-The `docker-compose.yml` starts both rova and llama-router on a shared network:
+The `docker-compose.yml` starts both r105 and llama-router on a shared network:
 
 ```sh
 docker compose up -d llama-router
-docker compose run rova chat
+docker compose run r105 chat
 ```
 
-The stack mounts `~/.config/rova` and `~/.config/llama-router` for persistent configuration. `ROVA_URL=http://llama-router:8010` is set automatically.
+The stack mounts `~/.config/r105` and `~/.config/llama-router` for persistent configuration. `R105_URL=http://llama-router:8010` is set automatically.
 
 ---
 
@@ -639,38 +635,38 @@ The stack mounts `~/.config/rova` and `~/.config/llama-router` for persistent co
 ### pipx
 
 ```sh
-pipx upgrade rova          # update
-pipx uninstall rova        # remove
+pipx upgrade r105          # update
+pipx uninstall r105        # remove
 ```
 
 ### Homebrew
 
 ```sh
-brew upgrade rova          # update
-brew uninstall rova        # remove
+brew upgrade r105          # update
+brew uninstall r105        # remove
 ```
 
 ### Standalone binary
 
-Download the latest binary from [GitHub Releases](https://github.com/bnelabs/rova/releases) and replace the old one.
+Download the latest binary from [GitHub Releases](https://github.com/bnelabs/r105/releases) and replace the old one.
 
 ### From source
 
 ```sh
-cd /path/to/rova
+cd /path/to/r105
 git pull
 .venv/bin/pip install -e .
 
 # Uninstall
-rm ~/.local/bin/rova
-rm -rf /path/to/rova/.venv
+rm ~/.local/bin/r105
+rm -rf /path/to/r105/.venv
 ```
 
 ### Docker
 
 ```sh
-git pull && docker build -t rova .     # update
-docker rmi rova                        # remove image
+git pull && docker build -t r105 .     # update
+docker rmi r105                        # remove image
 ```
 
 ### Config cleanup
@@ -678,8 +674,8 @@ docker rmi rova                        # remove image
 None of these methods remove your user-level data. To wipe everything:
 
 ```sh
-rm -rf ~/.config/rova
-rm -rf ~/rova-workspace
+rm -rf ~/.config/r105
+rm -rf ~/r105-workspace
 ```
 
 ---
@@ -694,12 +690,12 @@ pip install -e ".[dev]"
 python -m pytest tests/ -v
 
 # With coverage
-python -m pytest tests/ -v --cov=rova --cov-report=term-missing
+python -m pytest tests/ -v --cov=r105 --cov-report=term-missing
 
 # Lint and type-check
-ruff check rova/ tests/
-ruff format rova/ tests/
-mypy rova/
+ruff check r105/ tests/
+ruff format r105/ tests/
+mypy r105/
 ```
 
 ### Test Structure
@@ -722,12 +718,12 @@ CI runs on GitHub Actions (`ci.yml`): ruff lint, mypy type-check, and pytest wit
 
 ## Architecture
 
-Rova is a layered Python application:
+r105 is a layered Python application:
 
 ```
 ┌──────────────┐     HTTP/SSE      ┌──────────────┐     HTTP      ┌──────────────┐
 │              │ ◄───────────────► │              │ ◄───────────► │              │
-│   Rova TUI   │    (REST + SSE)   │ llama-router │   (OpenAI API) │ llama-server │
+│   r105 TUI   │    (REST + SSE)   │ llama-router │   (OpenAI API) │ llama-server │
 │  (Textual)   │                   │  (FastAPI)   │                │  (llama.cpp) │
 │              │                   │              │                │              │
 └──────┬───────┘                   └──────────────┘                └──────────────┘

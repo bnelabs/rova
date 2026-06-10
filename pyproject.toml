@@ -1,7 +1,7 @@
 [project]
-name = "rova"
+name = "r105"
 version = "0.3.0"
-description = "Rova — Rapid On-demand Virtual Assistant: rich terminal frontend for llama-router"
+description = "r105 — Beyond the prompt. Rich terminal AI assistant for any OpenAI-compatible backend."
 requires-python = ">=3.12"
 dependencies = [
     "httpx>=0.27",
@@ -39,12 +39,12 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/bnelabs/rova"
-Repository = "https://github.com/bnelabs/rova.git"
-Issues = "https://github.com/bnelabs/rova/issues"
+Homepage = "https://github.com/bnelabs/r105"
+Repository = "https://github.com/bnelabs/r105.git"
+Issues = "https://github.com/bnelabs/r105/issues"
 
 [project.scripts]
-rova = "rova.cli:main"
+r105 = "r105.cli:main"
 
 [build-system]
 requires = ["setuptools>=75", "wheel"]
@@ -69,7 +69,7 @@ warn_unused_ignores = true
 exclude = ["tests/"]
 
 [tool.coverage.run]
-source = ["rova"]
+source = ["r105"]
 omit = ["tests/*"]
 
 [tool.coverage.report]
@@ -82,4 +82,4 @@ exclude_also = [
 ]
 
 [tool.setuptools.packages.find]
-include = ["rova*"]
+include = ["r105*"]

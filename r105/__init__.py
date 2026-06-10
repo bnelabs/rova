@@ -1,0 +1,3 @@
+"""r105 — Beyond the prompt. Rich terminal AI assistant for any OpenAI-compatible backend."""
+
+__version__ = "0.3.0"
