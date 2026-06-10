@@ -21,7 +21,7 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install build twine && python -m build && twine check dist/*
-      - run: pip install twine && twine upload dist/*
+      - run: pip install twine && twine upload --skip-existing dist/*
         env:
           TWINE_USERNAME: __token__
           TWINE_PASSWORD: ${{ secrets.PYPI_TOKEN }}
